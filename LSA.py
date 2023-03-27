@@ -19,13 +19,8 @@ nltk.download('stopwords')
 
 def upload_to_bucket(bucket_name, file_name):
     """Uploads a file to the given Cloud Storage bucket."""
-    # Instantiate a client object
     storage_client = storage.Client()
-
-    # Get the bucket object
     bucket = storage_client.bucket(bucket_name)
-
-    # Create a blob object for the file to be uploaded
     blob = bucket.blob(file_name)
 
     # if blob.exists():
@@ -33,12 +28,34 @@ def upload_to_bucket(bucket_name, file_name):
 
     blob.chunk_size = 5 * 1024 * 1024 # Set 5 MB blob size so it doesn't timeout
 
-    # Upload the file to Cloud Storage
     # blob.upload_from_filename(file_name)
 
     print(f"File {file_name} uploaded to {file_name}.")
 
     return blob.public_url
+
+def getSpeechText(client):
+    speech_audio = speech.RecognitionAudio(uri='gs://sermon-speech-audio/temp_audio.wav')
+    config = speech.RecognitionConfig(
+    encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+    sample_rate_hertz=44100,
+    language_code='en-US',
+    audio_channel_count = 2)
+
+    operation = client.long_running_recognize(config=config, audio=speech_audio)
+
+    print("Waiting for operation to complete...")
+    response = operation.result(timeout=5400)
+
+# response = client.recognize(config=config, audio=uploaded_uri)
+
+# Perform speech-to-text transcription
+# request = speech.RecognizeRequest(request={"config": config, "audio": content})
+# response = client.list_voices(request=request)
+    transcript = ''
+    for result in response.results:
+        transcript += result.alternatives[0].transcript
+    return transcript
 
 # Initialize Google Cloud APIs
 client = speech.SpeechClient()
@@ -66,34 +83,19 @@ with io.open(audio_path, 'rb') as audio_file:
 
 uploaded_uri = upload_to_bucket(bucket_name, audio_path)
 
-# Set up speech-to-text config
-speech_audio = speech.RecognitionAudio(uri='gs://sermon-speech-audio/temp_audio.wav')
-config = speech.RecognitionConfig(
-    encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-    sample_rate_hertz=44100,
-    language_code='en-US',
-    audio_channel_count = 2)
+transcript = getSpeechText(client)
 
-operation = client.long_running_recognize(config=config, audio=speech_audio)
-
-print("Waiting for operation to complete...")
-response = operation.result(timeout=5400)
-
-# response = client.recognize(config=config, audio=uploaded_uri)
-
-# Perform speech-to-text transcription
-# request = speech.RecognizeRequest(request={"config": config, "audio": content})
-# response = client.list_voices(request=request)
-transcript = ''
-for result in response.results:
-    transcript += result.alternatives[0].transcript
+transcript_file = open("transcript.txt", "w")
+transcript_file.write(transcript)
+transcript_file.close()
 
 # Analyze emotional tone of speaker
 # emotions = detector.detect_emotions(uploaded_uri)
 
 # Process transcript text
-doc = language_v1.Document(content=transcript, type_=language_v1.Document.Type.PLAIN_TEXT)
-sentences = [sentence.text.content for sentence in doc.sentences]
+document = language_v1.Document(content=transcript, type_=language_v1.Document.Type.PLAIN_TEXT)
+annotations = language_client.analyze_syntax(request={'document': document})
+sentences = [sentence.text.content for sentence in annotations.sentences]
 sentences = [re.sub(r'[^\w\s]','',sentence) for sentence in sentences]
 sentences = [sentence for sentence in sentences if not any(word.lower() in sentence.lower() for word in stop_words)]
 sentences = [sentence for sentence in sentences if len(sentence.split()) > 3]

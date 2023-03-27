@@ -1,6 +1,9 @@
 # Ignore local audio and video files
-By-Faith.mp4
-By-Faith.wav
+*.mp4
+*.wav
+
+# Secrets
+creds/*
 
 
 # Byte-compiled / optimized / DLL files

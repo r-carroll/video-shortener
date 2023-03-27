@@ -50,19 +50,20 @@ for start, end in segments:
             merged_segments.append((start, end))
 
 # Sort segments by interestingness
-segment_scores = []
-for start, end in merged_segments:
-    score = 0
-    for i, row in df.loc[(df['frameTime'] >= start) & (df['frameTime'] <= end)].iterrows():
-        for label in interesting_labels:
-            score += abs(row[label])
-    segment_scores.append((start, end, score))
-sorted_segments = sorted(segment_scores, key=lambda x: x[2], reverse=True)
+# need to figure out a better way to sort to keep things in order
+# segment_scores = []
+# for start, end in merged_segments:
+#     score = 0
+#     for i, row in df.loc[(df['frameTime'] >= start) & (df['frameTime'] <= end)].iterrows():
+#         for label in interesting_labels:
+#             score += abs(row[label])
+#     segment_scores.append((start, end, score))
+# sorted_segments = sorted(segment_scores, key=lambda x: x[2], reverse=True)
 
 # Create summary video
 summary_duration = 0
 summary = None
-for start, end, _ in sorted_segments:
+for start, end, _ in merged_segments: # will replace this with sorted segments
     clip = mp.VideoFileClip(video_file).subclip(start, end)
     if summary_duration + clip.duration <= time_allowed*60:
         if summary is None:
