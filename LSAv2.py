@@ -87,11 +87,8 @@ def summarize_video(video_file, summary_length=20, window_size=60, hop_size=30):
     video = mp.VideoFileClip(video_file)
     audio = video.audio
 
-    # Calculate the total duration of the video in seconds
-    total_duration = video.duration
-
     # Convert the summary length in minutes to the corresponding number of frames
-    summary_duration = summary_length * 60
+    summary_duration = summary_length * 60 * 60
     frame_rate = audio.fps
     summary_frames = int(summary_duration * frame_rate)
 
