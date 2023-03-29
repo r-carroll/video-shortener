@@ -1,17 +1,22 @@
 import os
 import io
+import math
 import numpy as np
 import moviepy.editor as mp
 import smile
+import smile.audio
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
-from nltk.tokenize import sent_tokenize
-from nltk.corpus import stopwords
+import nltk
 from google.cloud import speech
 from google.cloud import storage
+nltk.download('punkt')
+nltk.download('stopwords')
+from nltk.corpus import stopwords
+
+stop_words = set(stopwords.words('english'))
 
 def upload_to_bucket(bucket_name, file_name):
-    """Uploads a file to the given Cloud Storage bucket."""
     storage_client = storage.Client()
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(file_name)
@@ -51,48 +56,93 @@ def get_transcription():
     return text
     # return transcript
 
-def summarize_video(video_file, summary_length=20):
-    window_size = 4
-    hop_size = 1
+def smile_split(audio, window_size=3, hop_size=1.5):
+    """
+    window_size (float): Size of the window in seconds. Default is 3 seconds.
+    hop_size (float): Hop size between consecutive windows in seconds. Default is 1.5 seconds.
+    """
 
-    # Get transcription of speech in video
-    transcript = get_transcription()
+    samples = audio.to_soundarray()
+    framesize = int(window_size * audio.fps)
+    hopsize = int(hop_size * audio.fps)
 
-    # Preprocess transcript text
-    sentences = sent_tokenize(transcript)
-    stop_words = set(stopwords.words('english'))
-    preprocessed_text = []
-    for sentence in sentences:
-        words = sentence.lower().split()
-        words = [w for w in words if not w in stop_words]
-        preprocessed_text.append(' '.join(words))
+    smiles = smile.audio.Smiler(
+        frameSize=framesize, hopSize=hopsize, rmsThresh=0.01
+    )
 
-    # Create term-document matrix
-    vectorizer = TfidfVectorizer()
-    term_doc_matrix = vectorizer.fit_transform(preprocessed_text)
+    smiles.processAudio(samples)
+    timeslots = smiles.getResults()
 
-    # Compress matrix using SVD
-    svd = TruncatedSVD(n_components=min(10, len(sentences)-1))
-    svd.fit(term_doc_matrix)
-    compressed_matrix = svd.transform(term_doc_matrix)
+    segments = []
+    for slot in timeslots:
+        start = slot[0] / audio.fps
+        end = slot[1] / audio.fps
+        segment = audio.subclip(start, end)
+        segments.append(segment)
 
-    # Calculate scores for each sentence
-    scores = np.sum(compressed_matrix, axis=1)
+    return segments
 
-    # Select sentences with highest scores
-    summary_indices = np.argsort(scores)[-summary_length:]
+def summarize_video(video_file, summary_length=20, window_size=60, hop_size=30):
+    # Load the video file and extract the audio
+    video = mp.VideoFileClip(video_file)
+    audio = video.audio
 
-    # Extract segments from original video and concatenate to create summary video
-    audio = mp.AudioFileClip(video_file)
-    summary_segments = smile.smile_split(audio.to_soundarray(), window_size=window_size, hop_size=hop_size)
-    summary_video = summary_segments[0]
-    for i in range(1, len(summary_segments)):
-        summary_video = summary_video.append(summary_segments[i])
+    # Calculate the total duration of the video in seconds
+    total_duration = video.duration
 
-    # Write summary video to file
-    summary_file = f"{os.path.splitext(video_file)[0]}_summary.mp4"
-    summary_video.write_videofile(summary_file)
-    return summary_file
+    # Convert the summary length in minutes to the corresponding number of frames
+    summary_duration = summary_length * 60
+    frame_rate = audio.fps
+    summary_frames = int(summary_duration * frame_rate)
+
+    # Segment the audio and generate summaries for each segment
+    audio_segments = segment_audio(audio)
+    summaries = []
+    for segment in audio_segments:
+        summary = summarize_segment(segment, summary_frames)
+        summaries.append(summary)
+
+    summary_text = ' '.join(summaries)
+
+    # Use LSA to get a sentence embedding for each sentence in the summary
+    vectorizer = CountVectorizer(stop_words='english')
+    X = vectorizer.fit_transform(summaries)
+    svd = TruncatedSVD(n_components=1)
+    X_lsa = svd.fit_transform(X)
+
+    # Scale the sentence embeddings to the range [0, 1]
+    X_lsa = (X_lsa - np.min(X_lsa)) / (np.max(X_lsa) - np.min(X_lsa))
+
+    # Calculate the duration of each summary sentence as a fraction of the total summary duration
+    durations = []
+    for sentence in summaries:
+        sentence_duration = len(sentence) / len(summary_text)
+        durations.append(sentence_duration)
+
+    # Get the original video's frames per second
+    fps = video.fps
+
+    # Create a clip for each summary sentence
+    clips = []
+    for i in range(len(summaries)):
+        # Get the start and end time of the sentence in the original video
+        start_time = i * hop_size
+        end_time = start_time + window_size
+
+        # Create a clip for the sentence
+        sentence_clip = video.subclip(start_time, end_time)
+
+        # Set the clip's duration based on the duration of the summary sentence
+        sentence_duration = durations[i] * window_size
+        sentence_clip = sentence_clip.set_duration(sentence_duration)
+
+        # Add the clip to the list of clips
+        clips.append(sentence_clip)
+
+    # Concatenate the clips and write the summary video file
+    summary_video = concatenate_videoclips(clips)
+    summary_video.write_videofile('summary.mp4')
+
 
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "creds/celtic-guru-247118-9e8cccc27c4a.json"
