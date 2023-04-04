@@ -1,20 +1,35 @@
 import os
 import io
+import re
 import math
 import numpy as np
 import moviepy.editor as mp
-import smile
-import smile.audio
+from moviepy.audio.fx import volumex
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import TruncatedSVD
+from sklearn.cluster import KMeans
 import nltk
 from google.cloud import speech
 from google.cloud import storage
+from google.cloud import language_v1
+from nltk.corpus import stopwords
+from moviepy.video.io.VideoFileClip import VideoFileClip
+from moviepy.video.compositing.concatenate import concatenate_videoclips
+import nltk
+import pdb
+
+
 nltk.download('punkt')
 nltk.download('stopwords')
-from nltk.corpus import stopwords
 
 stop_words = set(stopwords.words('english'))
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "creds/celtic-guru-247118-9e8cccc27c4a.json"
+audio_path = 'temp_audio.wav'
+bucket_name = 'sermon-speech-audio'
+video_file_name = 'By-Faith.mp4'
+original_video = VideoFileClip(video_file_name)
+segment_duration = 60
 
 def upload_to_bucket(bucket_name, file_name):
     storage_client = storage.Client()
@@ -39,7 +54,8 @@ def get_transcription():
     #     encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
     #     sample_rate_hertz=44100,
     #     language_code='en-US',
-    #     audio_channel_count = 2)
+    #     audio_channel_count = 2,
+    #     enable_automatic_punctuation=True,)
     # operation = client.long_running_recognize(config=config, audio=speech_audio)
     # print("Waiting for operation to complete...")
     # response = operation.result(timeout=5400)
@@ -48,6 +64,7 @@ def get_transcription():
     # for result in response.results:
     #     transcript += result.alternatives[0].transcript.strip() + " "
 
+    # transcript_file = open("transcript.txt", "w")
     transcript_file = open("transcript.txt", "r")
     text = transcript_file.read()
     # transcript_file.write(transcript)
@@ -56,102 +73,65 @@ def get_transcription():
     return text
     # return transcript
 
-def smile_split(audio, window_size=3, hop_size=1.5):
-    """
-    window_size (float): Size of the window in seconds. Default is 3 seconds.
-    hop_size (float): Hop size between consecutive windows in seconds. Default is 1.5 seconds.
-    """
-
-    samples = audio.to_soundarray()
-    framesize = int(window_size * audio.fps)
-    hopsize = int(hop_size * audio.fps)
-
-    smiles = smile.audio.Smiler(
-        frameSize=framesize, hopSize=hopsize, rmsThresh=0.01
-    )
-
-    smiles.processAudio(samples)
-    timeslots = smiles.getResults()
-
-    segments = []
-    for slot in timeslots:
-        start = slot[0] / audio.fps
-        end = slot[1] / audio.fps
-        segment = audio.subclip(start, end)
-        segments.append(segment)
-
-    return segments
-
-def summarize_video(video_file, summary_length=20, window_size=60, hop_size=30):
-    # Load the video file and extract the audio
-    video = mp.VideoFileClip(video_file)
-    audio = video.audio
-
-    # Convert the summary length in minutes to the corresponding number of frames
-    summary_duration = summary_length * 60 * 60
-    frame_rate = audio.fps
-    summary_frames = int(summary_duration * frame_rate)
-
-    # Segment the audio and generate summaries for each segment
-    audio_segments = segment_audio(audio)
-    summaries = []
-    for segment in audio_segments:
-        summary = summarize_segment(segment, summary_frames)
-        summaries.append(summary)
-
-    summary_text = ' '.join(summaries)
-
-    # Use LSA to get a sentence embedding for each sentence in the summary
+def compute_lsa_scores(sentences):
     vectorizer = CountVectorizer(stop_words='english')
-    X = vectorizer.fit_transform(summaries)
-    svd = TruncatedSVD(n_components=1)
-    X_lsa = svd.fit_transform(X)
+    X = vectorizer.fit_transform(sentences).astype(float)
+    lsa = TruncatedSVD(n_components=1, algorithm='arpack', random_state=42)
+    lsa_scores = np.abs(lsa.fit_transform(X))
+    return lsa_scores
 
-    # Scale the sentence embeddings to the range [0, 1]
-    X_lsa = (X_lsa - np.min(X_lsa)) / (np.max(X_lsa) - np.min(X_lsa))
+def compute_sentiment_scores(sentences):
+    client = language_v1.LanguageServiceClient()
+    sentiment_scores = []
+    for sentence in sentences:
+        document = language_v1.Document(content=sentence, type_=language_v1.Document.Type.PLAIN_TEXT, language='en')
+        sentiment = client.analyze_sentiment(request={'document': document}).document_sentiment.score
+        sentiment_scores.append(sentiment)
+    return sentiment_scores
 
-    # Calculate the duration of each summary sentence as a fraction of the total summary duration
-    durations = []
-    for sentence in summaries:
-        sentence_duration = len(sentence) / len(summary_text)
-        durations.append(sentence_duration)
+def extract_important_segments():
+    #upload_to_bucket(bucket_name, audio_path)
+    transcript = get_transcription()
+    sentences = re.split('[.!?]', transcript)
+    lsa_scores = compute_lsa_scores(sentences)
+    sentiment_scores = compute_sentiment_scores(sentences)
+    features = np.column_stack((lsa_scores, sentiment_scores))
 
-    # Get the original video's frames per second
-    fps = video.fps
-
-    # Create a clip for each summary sentence
-    clips = []
-    for i in range(len(summaries)):
-        # Get the start and end time of the sentence in the original video
-        start_time = i * hop_size
-        end_time = start_time + window_size
-
-        # Create a clip for the sentence
-        sentence_clip = video.subclip(start_time, end_time)
-
-        # Set the clip's duration based on the duration of the summary sentence
-        sentence_duration = durations[i] * window_size
-        sentence_clip = sentence_clip.set_duration(sentence_duration)
-
-        # Add the clip to the list of clips
-        clips.append(sentence_clip)
-
-    # Concatenate the clips and write the summary video file
-    summary_video = concatenate_videoclips(clips)
-    summary_video.write_videofile('summary.mp4')
+    kmeans = KMeans(n_clusters=int(original_video.duration/segment_duration), random_state=42)
+    kmeans.fit(features)
+    cluster_centers = kmeans.cluster_centers_
+    cluster_indices = np.argsort(np.linalg.norm(features - cluster_centers[:, np.newaxis], axis=2), axis=1)
+    important_segments = []
+    for i in range(len(cluster_centers)):
+        start_index = cluster_indices[i, 0]
+        end_index = start_index + next((i for i in range(start_index, len(sentences) - 1) if len(sentences[i]) > 1 and len(sentences[i+1]) > 1), len(sentences) - 1) - start_index
+        start_time = sum(len(sentences[j]) + 1 for j in range(start_index))
+        end_time = sum(len(sentences[j]) + 1 for j in range(end_index + 1))
+        important_segments.append({'start_time': start_time, 'end_time': end_time})
+    return important_segments
 
 
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "creds/celtic-guru-247118-9e8cccc27c4a.json"
-input_path = 'By-Faith.mp4'
-audio_path = 'temp_audio.wav'
-bucket_name = 'sermon-speech-audio'
+def condense_segment(segment, duration):
+    start_time = segment['start_time']
+    end_time = segment['end_time']
+    video_segment = original_video.subclip(start_time, end_time)
+    condensed_segment = video_segment.fx(volumex, 0.5).set_duration(duration)
+    return condensed_segment
 
-video = mp.VideoFileClip(input_path)
+video = mp.VideoFileClip(video_file_name)
 audio = video.audio.write_audiofile(audio_path)
 
-with io.open(audio_path, 'rb') as audio_file:
-    content = audio_file.read()
+# with io.open(audio_path, 'rb') as audio_file:
+#     content = audio_file.read()
 
-#upload_to_bucket(bucket_name, audio_path)
-summarize_video(input_path)
+# #upload_to_bucket(bucket_name, audio_path)
+# summarize_video(input_path)
+
+important_segments = extract_important_segments()
+condensed_segments = []
+for segment in important_segments:
+    condensed_segment = condense_segment(segment, segment_duration)
+    condensed_segments.append(condensed_segment)
+summary_video = concatenate_videoclips(condensed_segments)
+summary_video.write_videofile('summary_video.mp4')
