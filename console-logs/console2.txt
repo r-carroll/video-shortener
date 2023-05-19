@@ -1,0 +1,49 @@
+(Pdb) n
+> /Users/ryan.carroll/Documents/GitHub/video-shortener/LSAv2.py(126)extract_important_segments()
+-> important_segments.append({'start_time': start_time, 'end_time': end_time})
+(Pdb) start_time
+2506.1
+(Pdb) end_time
+792.6
+(Pdb) start_index
+212
+(Pdb) end_index
+33
+(Pdb) cluster_indices[i]
+array([212, 150, 125, 305,  80, 319, 269, 129, 238, 303, 232, 290, 128,
+       247, 295,  60, 165, 121, 109, 296, 233, 230, 250,  84, 120, 292,
+        94, 209, 301,  28,   5, 210, 219, 278, 123, 251, 231, 114,  96,
+       118,  90, 241, 228, 103, 111, 249, 226, 312, 287, 300, 149, 306,
+        29, 315, 258, 185,  93, 248, 133, 215,  87, 307, 122,  30,  77,
+        57,  76, 239, 225, 161,  82,  18, 297, 136,  71, 214, 263, 268,
+       163, 198,  34,   6, 285,  65, 227, 240,  55, 218, 117, 244,  32,
+       293,  88, 264,  50, 102, 314, 135, 105, 178,  83, 183, 179, 108,
+       174, 172, 173,  74, 271,  73,  86, 175, 167, 127, 299, 280, 213,
+       168, 156, 206,  81, 266, 291, 276, 265, 155, 267, 270, 298, 132,
+       311, 282,  79, 131,  75,  68,  51,  85,  31, 235,  89, 281, 205,
+       302, 274, 190, 157, 220, 255, 138,  12, 153, 152, 310,  52, 223,
+       193,  64, 207, 134, 259,  40,  95, 101, 176, 272, 100, 261, 113,
+       184,  26,  78, 294,  41,  67, 197,   7,  13,  21,  35, 245, 146,
+       254,  17, 201,  91,  11, 139, 104, 237, 164, 289,  63,  72, 224,
+        10,  27, 196, 211, 182, 181,  48,   8, 236,  56, 137,  99, 116,
+       106, 234, 130, 313, 202, 192, 203, 243, 144, 159,   1, 279,  62,
+        61,  19, 186,  45,  20, 171, 177, 180,  39,  38,  92, 283,  24,
+       126, 262,  54, 154, 107,  59, 288,  37, 195, 229, 246, 273, 169,
+       148, 222, 115, 252, 151,  15,  70, 216,   0,  53,  46, 124,  66,
+        97, 217,  98, 141, 162, 286, 112, 199, 142, 119,  58, 191, 145,
+       158, 260,  44, 309, 187,  47, 253,  14, 208, 200,  16,  69, 304,
+       318,  49, 275,  25,   3, 256, 277,  23, 147, 257,  43,  42, 188,
+       284, 110, 204,  36, 160, 308,   9, 143,   4, 221, 166, 316,   2,
+       189, 170, 194, 317, 140,  22, 242,  33])
+(Pdb) i
+2
+(Pdb) sentences[212]
+{'text': 'Immediately, they sprung to action and they they put down the threatened and they secured the area. They offered Medical Aid, medical assistance to to the people who needed it at the moment.', 'start_time': 2506.1, 'end_time': 2516.1}
+(Pdb) sentences[33]
+{'text': "People will mock the idea of living by faith because some have misused or wrongly Define the word for their own personal gain. We're familiar with the word faith movement that treats, God is a Genie in a Bottle that with every little whim or wish that you have, you can go and you can rub the bottle. And, and if you have just enough faith in in the, in the genie, that comes out of the bottle, then he'll give you exactly what you want. What you wish what you desire. And so if you want more money, man, he'll give that to you. If you have faith, if you need to be healed, he'll give that to you. If you have faith, you want a bigger house. He'll give that to you. If you have faith it, if you want a better position in life of a better job or promotion or something like that, he'll give that to you. If you just have enough faith, if you, if you want to be rich man, I'm just plant the seed of $1,000, and that's my seed. Will Spring forth into hundreds of thousands or millions of dollars. That's the word faith movement. A perverted the meaning of Faith. They preferred it. What God desires when he says You must live.", 'start_time': 732.7, 'end_time': 792.6}
+(Pdb) cluster_indicies.shape
+*** NameError: name 'cluster_indicies' is not defined
+(Pdb) cluster_indices.shape
+(58, 320)
+(Pdb) --KeyboardInterrupt--
+(Pdb)

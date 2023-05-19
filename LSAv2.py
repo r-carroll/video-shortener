@@ -1,12 +1,6 @@
 import os
-import io
-import re
 import json
-import math
 import numpy as np
-import moviepy.editor as mp
-from moviepy.audio.fx import volumex
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import TruncatedSVD
 from sklearn.cluster import KMeans
@@ -19,6 +13,8 @@ from moviepy.video.io.VideoFileClip import VideoFileClip
 from moviepy.video.compositing.concatenate import concatenate_videoclips
 import nltk
 import pdb
+from sklearn.preprocessing import StandardScaler
+import spacy
 
 
 nltk.download('punkt')
@@ -108,18 +104,72 @@ def extract_important_segments():
     lsa_scores = compute_lsa_scores(sentences)
     sentiment_scores = compute_sentiment_scores(sentences)
     features = np.column_stack((lsa_scores, sentiment_scores))
-    kmeans = KMeans(n_clusters=int(original_video.duration/segment_duration), random_state=42)
+    scaler = StandardScaler()
+    features = scaler.fit_transform(features)
+    kmeans = KMeans(n_clusters=int(original_video.duration/segment_duration), init='k-means++', random_state=42)
     kmeans.fit(features)
     cluster_centers = kmeans.cluster_centers_
     cluster_indices = np.argsort(np.linalg.norm(features - cluster_centers[:, np.newaxis], axis=2), axis=1)
+
+    # plt.scatter(features[:, 0], features[:, 1], c=cluster_indices)
+    # plt.scatter(kmeans.cluster_centers_[:, 0], kmeans.cluster_centers_[:, 1], s=100, marker='*', c=matplotlib.colors.to_rgba('red'))
+    # plt.xlabel('LSA score')
+    # plt.ylabel('Sentiment score')
+    # plt.show()
+
     important_segments = []
     for i in range(len(cluster_centers)):
+        timestamps = []
         start_index = cluster_indices[i, 0]
         end_index = cluster_indices[i, -1]
-        start_time = sentences[start_index]['start_time']
-        end_time = sentences[end_index]['end_time']
-        important_segments.append({'start_time': start_time, 'end_time': end_time})
+        timestamps.append(sentences[start_index]['start_time'])
+        timestamps.append(sentences[end_index]['end_time'])
+        timestamps.sort()
+        important_segments.append({'start_time': timestamps[0], 'end_time': timestamps[1]})
+
+    # print('the shape of the important segments is' + important_segments)
+    pdb.set_trace()
     return important_segments
+
+def summarize_segments():
+    sentences = get_transcription()
+    # Create a spacy model.
+    nlp = spacy.load("en_core_web_sm")
+
+    # Create a list of sentence embeddings.
+    sentence_embeddings = []
+    for sentence in sentences:
+        sentence_text = sentence['text']  # Extract the text from the dictionary
+        sentence_embeddings.append(nlp(sentence_text).vector)
+
+    # Calculate the similarity between each pair of sentence embeddings.
+    similarity_matrix = np.zeros((len(sentences), len(sentences)))
+    for i in range(len(sentences)):
+        for j in range(i + 1, len(sentences)):
+            similarity_matrix[i][j] = np.dot(sentence_embeddings[i], sentence_embeddings[j])
+
+    # Find the most similar sentences for each sentence.
+    most_similar_sentences = []
+    for i in range(len(sentences)):
+        most_similar_sentences.append(np.argsort(similarity_matrix[i])[::-1][:2])
+
+    # Order the sentences so that the sentences that are most similar to each other are grouped together.
+    ordered_sentences = []
+    for i in range(len(sentences)):
+        ordered_sentence_indices = most_similar_sentences[i]
+        ordered_sentence_data = []
+        for index in ordered_sentence_indices:
+            sentence_data = {
+                'text': sentences[index]['text'],
+                'start_time': sentences[index]['start_time'],
+                'end_time': sentences[index]['end_time']
+            }
+            ordered_sentence_data.append(sentence_data)
+        ordered_sentences.extend(ordered_sentence_data)
+
+    return ordered_sentences
+
+
 
 
 def condense_segment(segment):
@@ -228,7 +278,7 @@ def trim_segments(segments):
 
 # #upload_to_bucket(bucket_name, audio_path)
 
-important_segments = extract_important_segments()
+important_segments = summarize_segments()
 condensed_segments = [] # might remove this in a bit
 trimmed_segments = trim_segments(important_segments)
 summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)
