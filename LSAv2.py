@@ -1,4 +1,6 @@
 import os
+import sys
+import io
 import json
 import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer
@@ -15,6 +17,7 @@ import nltk
 import pdb
 from sklearn.preprocessing import StandardScaler
 import spacy
+import moviepy.editor as mp
 
 
 nltk.download('punkt')
@@ -24,7 +27,9 @@ stop_words = set(stopwords.words('english'))
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "creds/celtic-guru-247118-9e8cccc27c4a.json"
 audio_path = 'temp_audio.wav'
 bucket_name = 'sermon-speech-audio'
-video_file_name = 'By-Faith.mp4'
+video_file_name = sys.argv[1]
+file_without_path = os.path.basename(video_file_name)
+file_name_without_extension = os.path.splitext(file_without_path)[0]
 original_video = VideoFileClip(video_file_name)
 segment_duration = 60
 TARGET_DURATION = 20 * 60;
@@ -34,19 +39,19 @@ def upload_to_bucket(bucket_name, file_name):
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(file_name)
 
-    # if blob.exists():
-    #     blob.delete()
+    if blob.exists():
+        blob.delete()
 
     blob.chunk_size = 5 * 1024 * 1024 # Set 5 MB blob size so it doesn't timeout
 
-    # blob.upload_from_filename(file_name)
+    blob.upload_from_filename(file_name)
 
     print(f"File {file_name} uploaded to {file_name}.")
 
     return blob.public_url
 
-def get_transcription():
-    transcript_file = 'sentences.json'
+def get_transcription(bucket_name, audio_path):
+    transcript_file = file_name_without_extension + '.json'
     client = speech.SpeechClient()
     speech_audio = speech.RecognitionAudio(uri='gs://sermon-speech-audio/temp_audio.wav')
     config = speech.RecognitionConfig(
@@ -61,6 +66,7 @@ def get_transcription():
         with open(transcript_file, "r") as f:
             sentences = json.load(f)
     else:
+        upload_to_bucket(bucket_name, audio_path)
         operation = client.long_running_recognize(config=config, audio=speech_audio)
         print("Waiting for operation to complete...")
         response = operation.result(timeout=5400)
@@ -99,8 +105,8 @@ def compute_sentiment_scores(sentences):
         sentiment_scores.append(sentiment)
     return sentiment_scores
 
-def extract_important_segments():
-    sentences = get_transcription()
+def extract_important_segments(bucket_name, audio_path):
+    sentences = get_transcription(bucket_name, audio_path)
     lsa_scores = compute_lsa_scores(sentences)
     sentiment_scores = compute_sentiment_scores(sentences)
     features = np.column_stack((lsa_scores, sentiment_scores))
@@ -131,8 +137,8 @@ def extract_important_segments():
     pdb.set_trace()
     return important_segments
 
-def summarize_segments():
-    sentences = get_transcription()
+def summarize_segments(bucket_name, audio_path):
+    sentences = get_transcription(bucket_name, audio_path)
     # Create a spacy model.
     nlp = spacy.load("en_core_web_sm")
 
@@ -276,9 +282,15 @@ def trim_segments(segments):
     return sorted_segments
 
 
-# #upload_to_bucket(bucket_name, audio_path)
+video = mp.VideoFileClip(video_file_name)
+audio = video.audio.write_audiofile(audio_path)
 
-important_segments = summarize_segments()
+# Load audio file
+with io.open(audio_path, 'rb') as audio_file:
+    content = audio_file.read()
+
+
+important_segments = summarize_segments(bucket_name, audio_path)
 condensed_segments = [] # might remove this in a bit
 trimmed_segments = trim_segments(important_segments)
 summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)

@@ -1,6 +1,10 @@
 # Ignore local audio and video files
 *.mp4
 *.wav
+*.m4v
+
+# Transcripts
+*.json
 
 # Secrets
 creds/*
