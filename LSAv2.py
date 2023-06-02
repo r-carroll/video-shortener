@@ -18,6 +18,7 @@ import pdb
 from sklearn.preprocessing import StandardScaler
 import spacy
 import moviepy.editor as mp
+from datetime import datetime, timedelta
 
 
 nltk.download('punkt')
@@ -82,7 +83,7 @@ def get_transcription(bucket_name, audio_path):
                         'start_time': alternative.words[0].start_time.total_seconds(),
                         'end_time': alternative.words[-1].end_time.total_seconds()
                     })
-        with open('sentences.json', 'w') as f:
+        with open(transcript_file, 'w') as f:
             json.dump(sentences, f)
 
     return sentences
@@ -136,6 +137,62 @@ def extract_important_segments(bucket_name, audio_path):
     # print('the shape of the important segments is' + important_segments)
     pdb.set_trace()
     return important_segments
+
+def summarize_whole_segments(bucket_name, audio_path, threshold=0.8):
+    sentences = get_transcription(bucket_name, audio_path)
+    # Create a spacy model.
+    nlp = spacy.load("en_core_web_sm")
+
+    # Create a list of sentence embeddings.
+    sentence_embeddings = []
+    for sentence in sentences:
+        sentence_text = sentence['text']  # Extract the text from the dictionary
+        sentence_embeddings.append(nlp(sentence_text).vector)
+
+    # Calculate the similarity between each pair of sentence embeddings.
+    similarity_matrix = np.zeros((len(sentences), len(sentences)))
+    for i in range(len(sentences)):
+        for j in range(i + 1, len(sentences)):
+            similarity_matrix[i][j] = np.dot(sentence_embeddings[i], sentence_embeddings[j])
+
+    # Find the most similar sentences for each sentence.
+    most_similar_sentences = []
+    for i in range(len(sentences)):
+        most_similar_sentences.append(np.argsort(similarity_matrix[i])[::-1])
+
+    # Initialize variables for tracking segments
+    ordered_segments = []
+    used_indices = set()
+
+    # Process sentences in descending order of similarity
+    for i in range(len(sentences)):
+        sentence_index = most_similar_sentences[i][0]  # Get the most similar sentence index
+        if sentence_index in used_indices:
+            continue  # Skip if the sentence has already been used
+
+        segment_start = sentence_index
+        segment_end = sentence_index
+
+        # Expand the segment to include adjacent similar sentences
+        while segment_end + 1 < len(sentences) and similarity_matrix[sentence_index][segment_end + 1] > threshold:
+            segment_end += 1
+
+        # Add the segment to the result
+        segment_data = {
+            'text': '',
+            'start_time': sentences[segment_start]['start_time'],
+            'end_time': sentences[segment_end]['end_time']
+        }
+
+        for j in range(segment_start, segment_end + 1):
+            used_indices.add(j)
+            segment_data['text'] += sentences[j]['text'] + ' '
+
+        ordered_segments.append(segment_data)
+
+    return ordered_segments
+
+
 
 def summarize_segments(bucket_name, audio_path):
     sentences = get_transcription(bucket_name, audio_path)
@@ -199,7 +256,8 @@ def concatenate_segments(segments):
 
 def create_summary_video(segments, target_duration):
     summary_segments = []
-    total_duration = 0
+    total_duration = timedelta(seconds=0)
+    target_duration = timedelta(seconds=target_duration)
     index = 0
 
     while index < len(segments) and total_duration < target_duration:
@@ -209,20 +267,22 @@ def create_summary_video(segments, target_duration):
             summary_segments.append(segment)
             total_duration += calculate_segment_duration(segment)
         else:
+            pdb.set_trace()
             remaining_duration = target_duration - total_duration
             trimmed_segment = trim_segment(segment, remaining_duration)
             summary_segments.append(trimmed_segment)
             total_duration += calculate_segment_duration(trimmed_segment)
-
         index += 1
 
-    sorted_segments = sorted(segments, key=lambda s: s["start_time"])
+    sorted_segments = sorted(summary_segments, key=lambda s: s["start_time"])
     summary_video = concatenate_segments(sorted_segments)
 
     return summary_video
 
 def calculate_segment_duration(segment):
-    return segment["end_time"] - segment["start_time"]
+    start_time = timedelta(seconds=segment["start_time"])
+    end_time = timedelta(seconds=segment["end_time"])
+    return end_time - start_time
 
 def get_longest_subsegment(segment, max_duration):
     if calculate_segment_duration(segment) <= max_duration:
@@ -290,7 +350,7 @@ with io.open(audio_path, 'rb') as audio_file:
     content = audio_file.read()
 
 
-important_segments = summarize_segments(bucket_name, audio_path)
+important_segments = summarize_whole_segments(bucket_name, audio_path)
 condensed_segments = [] # might remove this in a bit
 trimmed_segments = trim_segments(important_segments)
 summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)
