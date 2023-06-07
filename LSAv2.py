@@ -2,6 +2,7 @@ import os
 import sys
 import io
 import json
+import operator
 import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import TruncatedSVD
@@ -16,9 +17,16 @@ from moviepy.video.compositing.concatenate import concatenate_videoclips
 import nltk
 import pdb
 from sklearn.preprocessing import StandardScaler
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from keras_preprocessing.sequence import pad_sequences
+from keras_preprocessing.text import Tokenizer
+
 import spacy
 import moviepy.editor as mp
-from datetime import datetime, timedelta
+from datetime import timedelta
+import moviepy.editor as mp
+from pydub import AudioSegment, silence
 
 
 nltk.download('punkt')
@@ -28,9 +36,12 @@ stop_words = set(stopwords.words('english'))
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "creds/celtic-guru-247118-9e8cccc27c4a.json"
 audio_path = 'temp_audio.wav'
 bucket_name = 'sermon-speech-audio'
-video_file_name = sys.argv[1]
+video_file_name = sys.argv[2]
+command = sys.argv[1]
 file_without_path = os.path.basename(video_file_name)
 file_name_without_extension = os.path.splitext(file_without_path)[0]
+if not os.path.exists(file_name_without_extension):
+    os.mkdir(file_name_without_extension)
 original_video = VideoFileClip(video_file_name)
 segment_duration = 60
 TARGET_DURATION = 20 * 60;
@@ -88,14 +99,6 @@ def get_transcription(bucket_name, audio_path):
 
     return sentences
 
-def compute_lsa_scores(sentences):
-    texts = [sentence['text'] for sentence in sentences]
-    vectorizer = CountVectorizer(stop_words='english')
-    X = vectorizer.fit_transform(texts).astype(float)
-    lsa = TruncatedSVD(n_components=1, algorithm='arpack', random_state=42)
-    lsa_scores = np.abs(lsa.fit_transform(X))
-    return lsa_scores
-
 def compute_sentiment_scores(sentences):
     texts = [sentence['text'] for sentence in sentences]
     client = language_v1.LanguageServiceClient()
@@ -106,37 +109,50 @@ def compute_sentiment_scores(sentences):
         sentiment_scores.append(sentiment)
     return sentiment_scores
 
-def extract_important_segments(bucket_name, audio_path):
+
+def calculate_relevance(text, sentences):
+    # Load the spaCy model for English language processing
+    nlp = spacy.load("en_core_web_sm")
+
+    # Tokenize and process each segment in the transcript
+    transcript_docs = [nlp(segment['text']) for segment in sentences]
+
+    # Extract the text from transcript docs
+    transcript_texts = [doc.text for doc in transcript_docs]
+
+    # Pad the transcript texts to the length of the longest segment
+    np_texts = np.array(transcript_texts)
+    corpus = transcript_texts + [text]
+
+    # Apply TF-IDF vectorization to the corpus
+    vectorizer = TfidfVectorizer()
+    tfidf_matrix = vectorizer.fit_transform(corpus)
+
+    # Calculate cosine similarity between the text and the whole transcript
+    text_tfidf = tfidf_matrix[-1]
+    transcript_tfidf = tfidf_matrix[:-1]
+    similarity = cosine_similarity(text_tfidf, transcript_tfidf)
+
+    average_similarity = np.mean(similarity)
+
+    return average_similarity
+
+
+def order_by_relevance(bucket_name, audio_path):
+    segments = []
     sentences = get_transcription(bucket_name, audio_path)
-    lsa_scores = compute_lsa_scores(sentences)
-    sentiment_scores = compute_sentiment_scores(sentences)
-    features = np.column_stack((lsa_scores, sentiment_scores))
-    scaler = StandardScaler()
-    features = scaler.fit_transform(features)
-    kmeans = KMeans(n_clusters=int(original_video.duration/segment_duration), init='k-means++', random_state=42)
-    kmeans.fit(features)
-    cluster_centers = kmeans.cluster_centers_
-    cluster_indices = np.argsort(np.linalg.norm(features - cluster_centers[:, np.newaxis], axis=2), axis=1)
 
-    # plt.scatter(features[:, 0], features[:, 1], c=cluster_indices)
-    # plt.scatter(kmeans.cluster_centers_[:, 0], kmeans.cluster_centers_[:, 1], s=100, marker='*', c=matplotlib.colors.to_rgba('red'))
-    # plt.xlabel('LSA score')
-    # plt.ylabel('Sentiment score')
-    # plt.show()
+    for sentence in sentences:
+        relevance_score = calculate_relevance(sentence['text'], sentences)
+        segments.append({
+            'text': sentence['text'],
+            'relevance': relevance_score,
+            'start_time': sentence['start_time'],
+            'end_time': sentence['end_time']
+        })
 
-    important_segments = []
-    for i in range(len(cluster_centers)):
-        timestamps = []
-        start_index = cluster_indices[i, 0]
-        end_index = cluster_indices[i, -1]
-        timestamps.append(sentences[start_index]['start_time'])
-        timestamps.append(sentences[end_index]['end_time'])
-        timestamps.sort()
-        important_segments.append({'start_time': timestamps[0], 'end_time': timestamps[1]})
-
-    # print('the shape of the important segments is' + important_segments)
-    pdb.set_trace()
-    return important_segments
+    segments.sort(key=operator.itemgetter('relevance'), reverse=True)
+    return segments
 
 def summarize_whole_segments(bucket_name, audio_path, threshold=0.8):
     sentences = get_transcription(bucket_name, audio_path)
@@ -194,7 +210,8 @@ def summarize_whole_segments(bucket_name, audio_path, threshold=0.8):
 
 
 
-def summarize_segments(bucket_name, audio_path):
+
+def meme_segments(bucket_name, audio_path):
     sentences = get_transcription(bucket_name, audio_path)
     # Create a spacy model.
     nlp = spacy.load("en_core_web_sm")
@@ -267,7 +284,6 @@ def create_summary_video(segments, target_duration):
             summary_segments.append(segment)
             total_duration += calculate_segment_duration(segment)
         else:
-            pdb.set_trace()
             remaining_duration = target_duration - total_duration
             trimmed_segment = trim_segment(segment, remaining_duration)
             summary_segments.append(trimmed_segment)
@@ -278,6 +294,24 @@ def create_summary_video(segments, target_duration):
     summary_video = concatenate_segments(sorted_segments)
 
     return summary_video
+
+def write_segment_files(segments, video):
+    index = 0
+    while index < 5 or index >= len(segments):
+        start_time = segments[index]['start_time']
+        end_time = segments[index]['end_time']
+        segment_clip = video.subclip(start_time, end_time)
+        segment_filename = f"segment_{start_time}_{end_time}.mp4"
+        segment_clip.write_videofile(file_name_without_extension + '/' + segment_filename, codec="libx264", audio_codec='aac')
+
+        # Close the segment clip
+        segment_clip.close()
+
+        index+=1
+
+    # Close the original video
+    video.close()
+
 
 def calculate_segment_duration(segment):
     start_time = timedelta(seconds=segment["start_time"])
@@ -341,6 +375,36 @@ def trim_segments(segments):
 
     return sorted_segments
 
+def remove_empty_space(temp_audio_path):
+    audio = AudioSegment.from_wav(temp_audio_path)
+
+    # Split the audio into chunks based on silence
+    chunks = []
+    silence_thresh = -50
+    min_silence_duration = 1200
+    audio_chunks = silence.split_on_silence(
+        audio,
+        min_silence_len=min_silence_duration,
+        silence_thresh=silence_thresh
+    )
+
+    # Iterate through the audio chunks and determine their duration
+    for chunk in audio_chunks:
+        chunk_duration = len(chunk) / 1000  # Convert to seconds
+
+        # Add the chunk to the list if it is not considered empty space
+        if chunk_duration > min_silence_duration / 1000:
+            chunks.append(chunk)
+
+    # Concatenate the non-empty audio chunks with half a second of silence in between
+    modified_audio = chunks[0]
+    for chunk in chunks[1:]:
+        silence_segment = AudioSegment.silent(duration=500)  # Half a second of silence
+        modified_audio += silence_segment + chunk
+
+    modified_audio.export('summary.wav', format="wav")
+
+
 
 video = mp.VideoFileClip(video_file_name)
 audio = video.audio.write_audiofile(audio_path)
@@ -349,10 +413,19 @@ audio = video.audio.write_audiofile(audio_path)
 with io.open(audio_path, 'rb') as audio_file:
     content = audio_file.read()
 
+if command == "summarize":
+    important_segments = summarize_whole_segments(bucket_name, audio_path)
+    trimmed_segments = trim_segments(important_segments)
+    summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)
+    summary_video.write_videofile('summary_video.mp4', fps=24, codec='libx264', audio_codec='aac')
+elif command == "clean":
+    remove_empty_space(audio_path)
+elif command == "shorts":
+    segments = order_by_relevance(bucket_name, audio_path)
+    write_segment_files(segments, video)
 
-important_segments = summarize_whole_segments(bucket_name, audio_path)
-condensed_segments = [] # might remove this in a bit
-trimmed_segments = trim_segments(important_segments)
-summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)
-# summary_video = concatenate_segments(important_segments, 60)
-summary_video.write_videofile('summary_video.mp4', fps=24, codec='libx264', audio_codec='aac')
+elif command == "meme":
+    important_segments = meme_segments(bucket_name, audio_path)
+    trimmed_segments = trim_segments(important_segments)
+    summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)
+    summary_video.write_videofile('summary_video.mp4', fps=24, codec='libx264', audio_codec='aac')

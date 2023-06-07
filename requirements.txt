@@ -9,3 +9,7 @@ google-cloud-storage
 google-cloud-speech
 google-cloud-language
 moviepy
+pydub
+tensorflow
+keras
+keras_preprocessing
