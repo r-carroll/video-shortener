@@ -13,3 +13,5 @@ pydub
 tensorflow
 keras
 keras_preprocessing
+googletrans
+srt

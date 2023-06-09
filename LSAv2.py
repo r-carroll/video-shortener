@@ -20,18 +20,20 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from keras_preprocessing.sequence import pad_sequences
-from keras_preprocessing.text import Tokenizer
+from nltk.sentiment import SentimentIntensityAnalyzer
 
 import spacy
 import moviepy.editor as mp
 from datetime import timedelta
 import moviepy.editor as mp
 from pydub import AudioSegment, silence
+import translation
 
 
 nltk.download('punkt')
 nltk.download('stopwords')
-
+nltk.download('vader_lexicon')
+nlp = spacy.load("en_core_web_sm")
 stop_words = set(stopwords.words('english'))
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "creds/celtic-guru-247118-9e8cccc27c4a.json"
 audio_path = 'temp_audio.wav'
@@ -62,6 +64,19 @@ def upload_to_bucket(bucket_name, file_name):
 
     return blob.public_url
 
+def get_end_of_sentence_timestamp(index, sentences):
+    if index < len(sentences):
+            sentence = sentences[index]
+            doc = nlp(sentence)
+            for token in doc:
+                if token.is_sent_end:
+                    return sentence['end_time']
+                else:
+                    index += 1
+                    get_end_of_sentence_timestamp(index, sentence)
+    else:
+        return sentences[index]['end_time']
+
 def get_transcription(bucket_name, audio_path):
     transcript_file = file_name_without_extension + '.json'
     client = speech.SpeechClient()
@@ -72,7 +87,9 @@ def get_transcription(bucket_name, audio_path):
         language_code='en-US',
         audio_channel_count = 2,
         enable_automatic_punctuation=True,
-        enable_word_time_offsets=True)
+        enable_word_time_offsets=True,
+        model='video',
+        use_enhanced=True)
     
     if os.path.exists(transcript_file):
         with open(transcript_file, "r") as f:
@@ -99,36 +116,12 @@ def get_transcription(bucket_name, audio_path):
 
     return sentences
 
-def compute_sentiment_scores(sentences):
-    texts = [sentence['text'] for sentence in sentences]
-    client = language_v1.LanguageServiceClient()
-    sentiment_scores = []
-    for text in texts:
-        document = language_v1.Document(content=text, type_=language_v1.Document.Type.PLAIN_TEXT, language='en')
-        sentiment = client.analyze_sentiment(request={'document': document}).document_sentiment.score
-        sentiment_scores.append(sentiment)
-    return sentiment_scores
-
-
 def calculate_relevance(text, sentences):
-    # Load the spaCy model for English language processing
-    nlp = spacy.load("en_core_web_sm")
-
-    # Tokenize and process each segment in the transcript
     transcript_docs = [nlp(segment['text']) for segment in sentences]
-
-    # Extract the text from transcript docs
     transcript_texts = [doc.text for doc in transcript_docs]
-
-    # Pad the transcript texts to the length of the longest segment
-    np_texts = np.array(transcript_texts)
     corpus = transcript_texts + [text]
-
-    # Apply TF-IDF vectorization to the corpus
     vectorizer = TfidfVectorizer()
     tfidf_matrix = vectorizer.fit_transform(corpus)
-
-    # Calculate cosine similarity between the text and the whole transcript
     text_tfidf = tfidf_matrix[-1]
     transcript_tfidf = tfidf_matrix[:-1]
     similarity = cosine_similarity(text_tfidf, transcript_tfidf)
@@ -137,16 +130,21 @@ def calculate_relevance(text, sentences):
 
     return average_similarity
 
+def compute_sentiment_score(text):
+    sentiment_analyzer = SentimentIntensityAnalyzer()
+    return sentiment_analyzer.polarity_scores(text)['compound']
 
 def order_by_relevance(bucket_name, audio_path):
     segments = []
     sentences = get_transcription(bucket_name, audio_path)
 
-    for sentence in sentences:
+    for index, sentence in enumerate(sentences):
         relevance_score = calculate_relevance(sentence['text'], sentences)
+        sentiment_score = abs(compute_sentiment_score(sentence['text']))
+        combined_score = relevance_score * sentiment_score
         segments.append({
             'text': sentence['text'],
-            'relevance': relevance_score,
+            'relevance': combined_score,
             'start_time': sentence['start_time'],
             'end_time': sentence['end_time']
         })
@@ -156,8 +154,6 @@ def order_by_relevance(bucket_name, audio_path):
 
 def summarize_whole_segments(bucket_name, audio_path, threshold=0.8):
     sentences = get_transcription(bucket_name, audio_path)
-    # Create a spacy model.
-    nlp = spacy.load("en_core_web_sm")
 
     # Create a list of sentence embeddings.
     sentence_embeddings = []
@@ -213,8 +209,6 @@ def summarize_whole_segments(bucket_name, audio_path, threshold=0.8):
 
 def meme_segments(bucket_name, audio_path):
     sentences = get_transcription(bucket_name, audio_path)
-    # Create a spacy model.
-    nlp = spacy.load("en_core_web_sm")
 
     # Create a list of sentence embeddings.
     sentence_embeddings = []
@@ -248,8 +242,6 @@ def meme_segments(bucket_name, audio_path):
         ordered_sentences.extend(ordered_sentence_data)
 
     return ordered_sentences
-
-
 
 
 def condense_segment(segment):
@@ -302,7 +294,7 @@ def write_segment_files(segments, video):
         end_time = segments[index]['end_time']
         segment_clip = video.subclip(start_time, end_time)
         segment_filename = f"segment_{start_time}_{end_time}.mp4"
-        segment_clip.write_videofile(file_name_without_extension + '/' + segment_filename, codec="libx264", audio_codec='aac')
+        segment_clip.write_videofile(f"{file_name_without_extension}/{segment_filename}", codec="libx264", audio_codec='aac')
 
         # Close the segment clip
         segment_clip.close()
@@ -377,8 +369,6 @@ def trim_segments(segments):
 
 def remove_empty_space(temp_audio_path):
     audio = AudioSegment.from_wav(temp_audio_path)
-
-    # Split the audio into chunks based on silence
     chunks = []
     silence_thresh = -50
     min_silence_duration = 1200
@@ -388,15 +378,11 @@ def remove_empty_space(temp_audio_path):
         silence_thresh=silence_thresh
     )
 
-    # Iterate through the audio chunks and determine their duration
     for chunk in audio_chunks:
         chunk_duration = len(chunk) / 1000  # Convert to seconds
-
-        # Add the chunk to the list if it is not considered empty space
         if chunk_duration > min_silence_duration / 1000:
             chunks.append(chunk)
 
-    # Concatenate the non-empty audio chunks with half a second of silence in between
     modified_audio = chunks[0]
     for chunk in chunks[1:]:
         silence_segment = AudioSegment.silent(duration=500)  # Half a second of silence
@@ -413,19 +399,30 @@ audio = video.audio.write_audiofile(audio_path)
 with io.open(audio_path, 'rb') as audio_file:
     content = audio_file.read()
 
+important_segments = []
+
+if command == "shorts" or command == "summarize":
+    important_segments = order_by_relevance(bucket_name, audio_path)
+
 if command == "summarize":
-    important_segments = summarize_whole_segments(bucket_name, audio_path)
     trimmed_segments = trim_segments(important_segments)
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)
     summary_video.write_videofile('summary_video.mp4', fps=24, codec='libx264', audio_codec='aac')
 elif command == "clean":
     remove_empty_space(audio_path)
 elif command == "shorts":
-    segments = order_by_relevance(bucket_name, audio_path)
-    write_segment_files(segments, video)
-
+    write_segment_files(important_segments, video)
 elif command == "meme":
     important_segments = meme_segments(bucket_name, audio_path)
     trimmed_segments = trim_segments(important_segments)
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)
     summary_video.write_videofile('summary_video.mp4', fps=24, codec='libx264', audio_codec='aac')
+elif command == "caption":
+    sentences = get_transcription(bucket_name, audio_path)
+    translation.generate_srt_files(sentences, file_name_without_extension)
+else:
+    print(f"Available commands: \n shorts: generate 5 short-format videos" +
+          f"\n summarize: generate a 20 minute summary video" +
+          f"\n clean: remove pauses and empty space" +
+          f"\n caption: generate SRT files for English, Spanish, and Portuguese" +
+          f"\n meme: just make a disaster")
