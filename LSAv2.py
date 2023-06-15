@@ -29,6 +29,8 @@ import moviepy.editor as mp
 from pydub import AudioSegment, silence
 import translation
 
+from pytube import YouTube
+
 
 nltk.download('punkt')
 nltk.download('stopwords')
@@ -64,18 +66,45 @@ def upload_to_bucket(bucket_name, file_name):
 
     return blob.public_url
 
-def get_end_of_sentence_timestamp(index, sentences):
-    if index < len(sentences):
-            sentence = sentences[index]
-            doc = nlp(sentence)
-            for token in doc:
-                if token.is_sent_end:
-                    return sentence['end_time']
-                else:
-                    index += 1
-                    get_end_of_sentence_timestamp(index, sentence)
-    else:
-        return sentences[index]['end_time']
+def clean_sentences(sentences):
+    new_sentences = []
+
+    # Iterate over the sentences
+    i = 0
+    while i + 1 < len(sentences):
+        new_sentence = {}
+        current_sentence = sentences[i]
+        current_text = current_sentence['text']
+        current_start_time = current_sentence['start_time']
+        current_end_time = current_sentence['end_time']
+
+        next_sentence = sentences[i + 1]
+        next_text = next_sentence['text']
+        next_start_time = next_sentence['start_time']
+        next_end_time = next_sentence['end_time']
+
+        # Process the current sentence text with spaCy
+        current_doc = nlp(current_text)
+        next_doc = nlp(next_text)
+
+        # Check if the last token is the end of a sentence
+        #print(doc[-1])
+        if not current_doc[-1].text.endswith(('.', '!', '?')):
+            # Concatenate with the next sentence if it exists
+            if i + 1 < len(sentences):
+                # Concatenate the texts, update the end time
+                current_text += ' ' + next_text
+                new_sentence = {'text': current_text, 'start_time': current_start_time, 'end_time': next_end_time}
+                i += 1 # skip next sentence
+                new_sentences.append(new_sentence)
+        else:
+            new_sentences.append(current_sentence)
+
+        # Move to the next sentence
+        i += 1
+
+    return new_sentences
+
 
 def get_transcription(bucket_name, audio_path):
     transcript_file = file_name_without_extension + '.json'
@@ -111,6 +140,7 @@ def get_transcription(bucket_name, audio_path):
                         'start_time': alternative.words[0].start_time.total_seconds(),
                         'end_time': alternative.words[-1].end_time.total_seconds()
                     })
+        sentences = clean_sentences(sentences)
         with open(transcript_file, 'w') as f:
             json.dump(sentences, f)
 
@@ -207,7 +237,7 @@ def summarize_whole_segments(bucket_name, audio_path, threshold=0.8):
 
 
 
-def meme_segments(bucket_name, audio_path):
+def meme_segments(bucket_name, audio_path, chunk_duration=1.0):
     sentences = get_transcription(bucket_name, audio_path)
 
     # Create a list of sentence embeddings.
@@ -227,21 +257,36 @@ def meme_segments(bucket_name, audio_path):
     for i in range(len(sentences)):
         most_similar_sentences.append(np.argsort(similarity_matrix[i])[::-1][:2])
 
-    # Order the sentences so that the sentences that are most similar to each other are grouped together.
+    # Split sentences into smaller chunks based on chunk_duration.
     ordered_sentences = []
     for i in range(len(sentences)):
         ordered_sentence_indices = most_similar_sentences[i]
         ordered_sentence_data = []
         for index in ordered_sentence_indices:
-            sentence_data = {
-                'text': sentences[index]['text'],
-                'start_time': sentences[index]['start_time'],
-                'end_time': sentences[index]['end_time']
-            }
-            ordered_sentence_data.append(sentence_data)
+            sentence_data = sentences[index]
+            start_time = sentence_data['start_time']
+            end_time = sentence_data['end_time']
+            duration = end_time - start_time
+            num_chunks = int(np.ceil(duration / chunk_duration))
+
+            if num_chunks > 1:
+                chunk_duration_actual = duration / num_chunks
+                for chunk_index in range(num_chunks):
+                    chunk_start_time = start_time + chunk_index * chunk_duration_actual
+                    chunk_end_time = chunk_start_time + chunk_duration_actual
+                    chunk_data = {
+                        'text': sentence_data['text'],
+                        'start_time': chunk_start_time,
+                        'end_time': chunk_end_time
+                    }
+                    ordered_sentence_data.append(chunk_data)
+            else:
+                ordered_sentence_data.append(sentence_data)
+
         ordered_sentences.extend(ordered_sentence_data)
 
     return ordered_sentences
+
 
 
 def condense_segment(segment):
@@ -363,9 +408,9 @@ def trim_segments(segments):
         previous_end_time = segment["end_time"]
 
     # Restore the original order of the segments
-    sorted_segments = sorted(trimmed_segments, key=lambda s: segments.index(s))
+    #sorted_segments = sorted(trimmed_segments, key=lambda s: segments.index(s))
 
-    return sorted_segments
+    return trimmed_segments
 
 def remove_empty_space(temp_audio_path):
     audio = AudioSegment.from_wav(temp_audio_path)
@@ -390,6 +435,43 @@ def remove_empty_space(temp_audio_path):
 
     modified_audio.export('summary.wav', format="wav")
 
+def all_silent(temp_audio_path):
+    audio = AudioSegment.from_wav(temp_audio_path)
+    silence_thresh = -50
+    min_silence_duration = 1200
+    audio_chunks = silence.detect_silence(
+        audio,
+        min_silence_len=min_silence_duration,
+        silence_thresh=silence_thresh
+    )
+
+    silent_chunks = []
+    for start, end in audio_chunks:
+        chunk_start_time = start / 1000  # Convert to seconds
+        chunk_end_time = end / 1000  # Convert to seconds
+        silent_chunks.append((chunk_start_time, chunk_end_time))
+
+    return silent_chunks
+
+def generate_silent_video(video, silent_chunks):
+    clips = []
+
+    for start_time, end_time in silent_chunks:
+        silent_clip = video.subclip(start_time, end_time)
+        clips.append(silent_clip)
+
+    silent_video = concatenate_videoclips(clips)
+    silent_video.write_videofile("silent_video.mp4", codec="libx264", audio_codec='aac')
+
+def download_video(url):
+    print("in the method")
+    if ("youtube.com" not in url):
+        url = input("Enter YouTube URL: ")
+    yt = YouTube(url,use_oauth=True,allow_oauth_cache=True)
+    filename = yt.title.replace(" ","_")
+    print("Downloading YouTube File: " + yt.title)
+    yt.streams.first().download(filename=filename + ".mp4")
+
 
 
 video = mp.VideoFileClip(video_file_name)
@@ -410,6 +492,9 @@ if command == "summarize":
     summary_video.write_videofile('summary_video.mp4', fps=24, codec='libx264', audio_codec='aac')
 elif command == "clean":
     remove_empty_space(audio_path)
+elif command == "unclean":
+    chunks = all_silent(audio_path)
+    generate_silent_video(video, chunks)
 elif command == "shorts":
     write_segment_files(important_segments, video)
 elif command == "meme":
@@ -420,6 +505,8 @@ elif command == "meme":
 elif command == "caption":
     sentences = get_transcription(bucket_name, audio_path)
     translation.generate_srt_files(sentences, file_name_without_extension)
+elif command == "download":
+    download_video(video_file_name)
 else:
     print(f"Available commands: \n shorts: generate 5 short-format videos" +
           f"\n summarize: generate a 20 minute summary video" +
