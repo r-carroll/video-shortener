@@ -27,9 +27,12 @@ import moviepy.editor as mp
 from datetime import timedelta
 import moviepy.editor as mp
 from pydub import AudioSegment, silence
-import translation
 
-from pytube import YouTube
+# local imports
+import translation
+import compressAudio
+import AudioProcessing
+
 
 
 nltk.download('punkt')
@@ -43,9 +46,9 @@ bucket_name = 'sermon-speech-audio'
 video_file_name = sys.argv[2]
 command = sys.argv[1]
 file_without_path = os.path.basename(video_file_name)
-file_name_without_extension = os.path.splitext(file_without_path)[0]
-if not os.path.exists(file_name_without_extension):
-    os.mkdir(file_name_without_extension)
+folder_name = os.path.splitext(file_without_path)[0]
+if not os.path.exists(folder_name):
+    os.mkdir(folder_name)
 original_video = VideoFileClip(video_file_name)
 segment_duration = 60
 TARGET_DURATION = 20 * 60;
@@ -107,7 +110,7 @@ def clean_sentences(sentences):
 
 
 def get_transcription(bucket_name, audio_path):
-    transcript_file = file_name_without_extension + '.json'
+    transcript_file = f"{folder_name}/{folder_name}.json"
     client = speech.SpeechClient()
     speech_audio = speech.RecognitionAudio(uri='gs://sermon-speech-audio/temp_audio.wav')
     config = speech.RecognitionConfig(
@@ -180,61 +183,10 @@ def order_by_relevance(bucket_name, audio_path):
         })
 
     segments.sort(key=operator.itemgetter('relevance'), reverse=True)
+    ordered_transcript = f"{folder_name}/ordered_transcript.json"
+    with open(ordered_transcript, 'w') as f:
+            json.dump(segments, f)
     return segments
-
-def summarize_whole_segments(bucket_name, audio_path, threshold=0.8):
-    sentences = get_transcription(bucket_name, audio_path)
-
-    # Create a list of sentence embeddings.
-    sentence_embeddings = []
-    for sentence in sentences:
-        sentence_text = sentence['text']  # Extract the text from the dictionary
-        sentence_embeddings.append(nlp(sentence_text).vector)
-
-    # Calculate the similarity between each pair of sentence embeddings.
-    similarity_matrix = np.zeros((len(sentences), len(sentences)))
-    for i in range(len(sentences)):
-        for j in range(i + 1, len(sentences)):
-            similarity_matrix[i][j] = np.dot(sentence_embeddings[i], sentence_embeddings[j])
-
-    # Find the most similar sentences for each sentence.
-    most_similar_sentences = []
-    for i in range(len(sentences)):
-        most_similar_sentences.append(np.argsort(similarity_matrix[i])[::-1])
-
-    # Initialize variables for tracking segments
-    ordered_segments = []
-    used_indices = set()
-
-    # Process sentences in descending order of similarity
-    for i in range(len(sentences)):
-        sentence_index = most_similar_sentences[i][0]  # Get the most similar sentence index
-        if sentence_index in used_indices:
-            continue  # Skip if the sentence has already been used
-
-        segment_start = sentence_index
-        segment_end = sentence_index
-
-        # Expand the segment to include adjacent similar sentences
-        while segment_end + 1 < len(sentences) and similarity_matrix[sentence_index][segment_end + 1] > threshold:
-            segment_end += 1
-
-        # Add the segment to the result
-        segment_data = {
-            'text': '',
-            'start_time': sentences[segment_start]['start_time'],
-            'end_time': sentences[segment_end]['end_time']
-        }
-
-        for j in range(segment_start, segment_end + 1):
-            used_indices.add(j)
-            segment_data['text'] += sentences[j]['text'] + ' '
-
-        ordered_segments.append(segment_data)
-
-    return ordered_segments
-
-
 
 
 def meme_segments(bucket_name, audio_path, chunk_duration=1.0):
@@ -289,16 +241,16 @@ def meme_segments(bucket_name, audio_path, chunk_duration=1.0):
 
 
 
-def condense_segment(segment):
+def condense_segment(segment, video):
     start_time = segment['start_time']
     end_time = segment['end_time']
-    video_segment = original_video.subclip(start_time, end_time)
+    video_segment = video.subclip(start_time, end_time)
     return video_segment
 
-def concatenate_segments(segments):
+def concatenate_segments(segments, video):
     clips = []
     for segment in segments:
-        condensed_segment = condense_segment(segment)
+        condensed_segment = condense_segment(segment, video)
         if condensed_segment.duration <= 0:
             continue
         clips.append(condensed_segment)
@@ -308,7 +260,7 @@ def concatenate_segments(segments):
     return final_clip
 
 
-def create_summary_video(segments, target_duration):
+def create_summary_video(segments, target_duration, video):
     summary_segments = []
     total_duration = timedelta(seconds=0)
     target_duration = timedelta(seconds=target_duration)
@@ -328,7 +280,7 @@ def create_summary_video(segments, target_duration):
         index += 1
 
     sorted_segments = sorted(summary_segments, key=lambda s: s["start_time"])
-    summary_video = concatenate_segments(sorted_segments)
+    summary_video = concatenate_segments(sorted_segments, video)
 
     return summary_video
 
@@ -339,7 +291,7 @@ def write_segment_files(segments, video):
         end_time = segments[index]['end_time']
         segment_clip = video.subclip(start_time, end_time)
         segment_filename = f"segment_{start_time}_{end_time}.mp4"
-        segment_clip.write_videofile(f"{file_name_without_extension}/{segment_filename}", codec="libx264", audio_codec='aac')
+        segment_clip.write_videofile(f"{folder_name}/shorts/{segment_filename}", codec="libx264", audio_codec='aac')
 
         # Close the segment clip
         segment_clip.close()
@@ -412,99 +364,43 @@ def trim_segments(segments):
 
     return trimmed_segments
 
-def remove_empty_space(temp_audio_path):
-    audio = AudioSegment.from_wav(temp_audio_path)
-    chunks = []
-    silence_thresh = -50
-    min_silence_duration = 1200
-    audio_chunks = silence.split_on_silence(
-        audio,
-        min_silence_len=min_silence_duration,
-        silence_thresh=silence_thresh
-    )
-
-    for chunk in audio_chunks:
-        chunk_duration = len(chunk) / 1000  # Convert to seconds
-        if chunk_duration > min_silence_duration / 1000:
-            chunks.append(chunk)
-
-    modified_audio = chunks[0]
-    for chunk in chunks[1:]:
-        silence_segment = AudioSegment.silent(duration=500)  # Half a second of silence
-        modified_audio += silence_segment + chunk
-
-    modified_audio.export('summary.wav', format="wav")
-
-def all_silent(temp_audio_path):
-    audio = AudioSegment.from_wav(temp_audio_path)
-    silence_thresh = -50
-    min_silence_duration = 1200
-    audio_chunks = silence.detect_silence(
-        audio,
-        min_silence_len=min_silence_duration,
-        silence_thresh=silence_thresh
-    )
-
-    silent_chunks = []
-    for start, end in audio_chunks:
-        chunk_start_time = start / 1000  # Convert to seconds
-        chunk_end_time = end / 1000  # Convert to seconds
-        silent_chunks.append((chunk_start_time, chunk_end_time))
-
-    return silent_chunks
-
-def generate_silent_video(video, silent_chunks):
-    clips = []
-
-    for start_time, end_time in silent_chunks:
-        silent_clip = video.subclip(start_time, end_time)
-        clips.append(silent_clip)
-
-    silent_video = concatenate_videoclips(clips)
-    silent_video.write_videofile("silent_video.mp4", codec="libx264", audio_codec='aac')
-
-def download_video(url):
-    print("in the method")
-    if ("youtube.com" not in url):
-        url = input("Enter YouTube URL: ")
-    yt = YouTube(url,use_oauth=True,allow_oauth_cache=True)
-    filename = yt.title.replace(" ","_")
-    print("Downloading YouTube File: " + yt.title)
-    yt.streams.first().download(filename=filename + ".mp4")
-
-
-
-video = mp.VideoFileClip(video_file_name)
-audio = video.audio.write_audiofile(audio_path)
+original_audio = original_video.audio.write_audiofile(audio_path)
 
 # Load audio file
 with io.open(audio_path, 'rb') as audio_file:
     content = audio_file.read()
 
 important_segments = []
+chunks = AudioProcessing.remove_empty_space(audio_path)
+cleaned_video = AudioProcessing.clips_to_video(original_video, chunks)
+cleaned_video.write_videofile(f"{folder_name}/cleaned_video.mp4", codec="libx264", audio_codec='aac')
+cleaned_video.audio.write_audiofile('uncompressed.wav')
+compressed_audio_path = compressAudio.compress_audio(cleaned_video.audio, folder_name)
+
 
 if command == "shorts" or command == "summarize":
     important_segments = order_by_relevance(bucket_name, audio_path)
 
 if command == "summarize":
     trimmed_segments = trim_segments(important_segments)
-    summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)
-    summary_video.write_videofile('summary_video.mp4', fps=24, codec='libx264', audio_codec='aac')
+    summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, cleaned_video)
+    summary_video.write_videofile(f"{folder_name}/summary_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 elif command == "clean":
-    remove_empty_space(audio_path)
+    AudioProcessing.remove_empty_space(audio_path)
 elif command == "unclean":
-    chunks = all_silent(audio_path)
-    generate_silent_video(video, chunks)
+    chunks = AudioProcessing.all_silent(audio_path)
+    silent_video = AudioProcessing.clips_to_video(original_video, chunks)
+    silent_video.write_videofile(f"{folder_name}/silent_video.mp4", codec="libx264", audio_codec='aac')
 elif command == "shorts":
-    write_segment_files(important_segments, video)
+    write_segment_files(important_segments, original_video)
 elif command == "meme":
     important_segments = meme_segments(bucket_name, audio_path)
     trimmed_segments = trim_segments(important_segments)
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)
-    summary_video.write_videofile('summary_video.mp4', fps=24, codec='libx264', audio_codec='aac')
+    summary_video.write_videofile(f"{folder_name}/meme_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 elif command == "caption":
     sentences = get_transcription(bucket_name, audio_path)
-    translation.generate_srt_files(sentences, file_name_without_extension)
+    translation.generate_srt_files(sentences, folder_name)
 elif command == "download":
     download_video(video_file_name)
 else:
