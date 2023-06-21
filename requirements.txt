@@ -16,3 +16,4 @@ keras_preprocessing
 googletrans
 srt
 pytube
+openai

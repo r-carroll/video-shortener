@@ -30,7 +30,6 @@ from pydub import AudioSegment, silence
 
 # local imports
 import translation
-import compressAudio
 import AudioProcessing
 
 
@@ -372,10 +371,8 @@ with io.open(audio_path, 'rb') as audio_file:
 
 important_segments = []
 chunks = AudioProcessing.remove_empty_space(audio_path)
+AudioProcessing.add_silence_between_segments(chunks, audio_path).export(f"{folder_name}/cleaned_audio.mp3", format='mp3', bitrate='48k')
 cleaned_video = AudioProcessing.clips_to_video(original_video, chunks)
-cleaned_video.write_videofile(f"{folder_name}/cleaned_video.mp4", codec="libx264", audio_codec='aac')
-cleaned_video.audio.write_audiofile('uncompressed.wav')
-compressed_audio_path = compressAudio.compress_audio(cleaned_video.audio, folder_name)
 
 
 if command == "shorts" or command == "summarize":
@@ -383,7 +380,7 @@ if command == "shorts" or command == "summarize":
 
 if command == "summarize":
     trimmed_segments = trim_segments(important_segments)
-    summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, cleaned_video)
+    summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/summary_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 elif command == "clean":
     AudioProcessing.remove_empty_space(audio_path)

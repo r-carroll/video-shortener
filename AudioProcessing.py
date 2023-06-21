@@ -1,5 +1,6 @@
 from pydub import AudioSegment, silence
 from moviepy.video.compositing.concatenate import concatenate_videoclips
+import openai
 
 def remove_empty_space(temp_audio_path):
     audio = AudioSegment.from_wav(temp_audio_path)
@@ -20,6 +21,18 @@ def remove_empty_space(temp_audio_path):
             chunks.append((chunk_start_time, chunk_end_time))
 
     return chunks
+
+def add_silence_between_segments(chunks, audio_path):
+    output_audio = AudioSegment.empty()
+    silence_duration = 500
+
+    for i, (start, end) in enumerate(chunks):
+            output_audio += AudioSegment.from_wav(audio_path)[int(start * 1000):int(end * 1000)]
+            # output_audio.append(segment, 500)
+            if i < len(chunks) - 1:
+                output_audio += AudioSegment.silent(duration=silence_duration)
+
+    return output_audio
 
 
 def all_silent(temp_audio_path):
@@ -48,3 +61,8 @@ def clips_to_video(video, chunks):
         clips.append(clip)
 
     return concatenate_videoclips(clips)
+
+def get_viral_transcript(audio_path):
+    openai.api_key = "sk-..."
+    f = open(audio_path, "rb")
+    transcript = openai.Audio.transcribe("whisper-1", f, params={"prompt"})
