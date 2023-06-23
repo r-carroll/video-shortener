@@ -29,10 +29,10 @@ def remove_empty_space(temp_audio_path, export_path):
 
     modified_audio = chunks[0]
     for chunk in chunks[1:]:
-        silence_segment = AudioSegment.silent(duration=500)  # Half a second of silence
+        silence_segment = AudioSegment.silent(duration=500)  # Half a second of silencze
         modified_audio += silence_segment + chunk
 
-    modified_audio.export(f"{export_path}cleaned_audio.wav", format="wav")
+    modified_audio.export(f"{export_path}/cleaned_audio.wav", format="wav")
     print("cleaned audio saved")
 
 
