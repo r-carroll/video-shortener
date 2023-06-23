@@ -359,9 +359,9 @@ def trim_segments(segments):
         previous_end_time = segment["end_time"]
 
     # Restore the original order of the segments
-    #sorted_segments = sorted(trimmed_segments, key=lambda s: segments.index(s))
+    sorted_segments = sorted(trimmed_segments, key=lambda s: segments.index(s))
 
-    return trimmed_segments
+    return sorted_segments
 
 original_audio = original_video.audio.write_audiofile(audio_path)
 
@@ -370,10 +370,6 @@ with io.open(audio_path, 'rb') as audio_file:
     content = audio_file.read()
 
 important_segments = []
-chunks = AudioProcessing.remove_empty_space(audio_path)
-AudioProcessing.add_silence_between_segments(chunks, audio_path).export(f"{folder_name}/cleaned_audio.mp3", format='mp3', bitrate='48k')
-cleaned_video = AudioProcessing.clips_to_video(original_video, chunks)
-
 
 if command == "shorts" or command == "summarize":
     important_segments = order_by_relevance(bucket_name, audio_path)
@@ -383,7 +379,7 @@ if command == "summarize":
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/summary_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 elif command == "clean":
-    AudioProcessing.remove_empty_space(audio_path)
+    AudioProcessing.remove_empty_space(audio_path, folder_name)
 elif command == "unclean":
     chunks = AudioProcessing.all_silent(audio_path)
     silent_video = AudioProcessing.clips_to_video(original_video, chunks)
