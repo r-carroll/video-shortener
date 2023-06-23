@@ -389,7 +389,7 @@ elif command == "shorts":
 elif command == "meme":
     important_segments = meme_segments(bucket_name, audio_path)
     trimmed_segments = trim_segments(important_segments)
-    summary_video = create_summary_video(trimmed_segments, TARGET_DURATION)
+    summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/meme_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 elif command == "caption":
     sentences = get_transcription(bucket_name, audio_path)
