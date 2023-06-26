@@ -285,6 +285,10 @@ def create_summary_video(segments, target_duration, video):
 
 def write_segment_files(segments, video):
     index = 0
+
+    if not os.path.exists(f"{folder_name}/shorts"):
+        os.mkdir(f"{folder_name}/shorts")
+
     while index < 5 or index >= len(segments):
         start_time = segments[index]['start_time']
         end_time = segments[index]['end_time']
