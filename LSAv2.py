@@ -26,7 +26,6 @@ from datetime import timedelta
 import moviepy.editor as mp
 
 # local imports
-import translation
 import AudioProcessing
 import TextProcessing
 
@@ -184,7 +183,7 @@ def create_summary_video(segments, target_duration, video, shuffle=False):
 
     if shuffle:
         random.shuffle(sorted_segments)
-        
+
     summary_video = concatenate_segments(sorted_segments, video)
 
     return summary_video
@@ -303,12 +302,13 @@ elif command == "meme":
     summary_video.write_videofile(f"{folder_name}/meme_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 elif command == "caption":
     sentences = TextProcessing.get_transcription(bucket_name, audio_path, folder_name)
-    translation.generate_srt_files(sentences, folder_name)
+    TextProcessing.generate_subtitles(sentences, folder_name)
 elif command == "download":
     download_video(video_file_name)
 else:
     print(f"Available commands: \n shorts: generate 5 short-format videos" +
           f"\n summarize: generate a 20 minute summary video" +
-          f"\n clean: remove pauses and empty space" +
+          f"\n clean: remove pauses and empty space, cleans up audio" +
+          f"\n unclean: only the pauses" +
           f"\n caption: generate SRT files for English, Spanish, and Portuguese" +
           f"\n meme: just make a disaster")

@@ -1,6 +1,9 @@
 import spacy
 import json
 import os
+import datetime
+import srt
+from googletrans import Translator
 from google.cloud import speech, storage
 
 def is_end_sentence(text):
@@ -86,3 +89,39 @@ def get_transcription(bucket_name, audio_path, folder_name):
             json.dump(sentences, f)
 
     return sentences
+
+def translate_srt(sentences, target_language, folder):
+  translator = Translator()
+  translated_sentences = []
+  translated_texts = [sentence['text'] for sentence in sentences]
+  if target_language != 'en':
+    translated_texts = translator.translate(translated_texts , dest=target_language)
+
+  for index, sentence in enumerate(sentences):
+    target_text = ""
+    if target_language == 'en':
+        target_text = translated_texts[index]
+    else:
+        target_text = translated_texts[index].text
+    
+    start_timedelta = datetime.timedelta(seconds=sentence["start_time"])
+    end_timedelta = datetime.timedelta(seconds=sentence["end_time"])
+    translated_sentences.append(
+        srt.Subtitle(
+            index=index,
+            content=target_text,
+            start=start_timedelta,
+            end=end_timedelta))
+
+  translated_srt = srt.compose(translated_sentences)
+
+  with open(f"{folder}/{target_language}.srt", "w") as f:
+    f.write(translated_srt)
+
+  return translated_srt
+
+def generate_subtitles(sentences, folder):
+    target_languages = ['en', 'es', 'pt']
+
+    for language in target_languages:
+        translate_srt(sentences, language, folder)

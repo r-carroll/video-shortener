@@ -13,7 +13,8 @@ pydub
 tensorflow
 keras
 keras_preprocessing
-googletrans
+googletrans==3.1.0a0
 srt
 pytube
 openai
+noisereduce

@@ -2,6 +2,9 @@ from pydub import AudioSegment, silence
 from moviepy.video.compositing.concatenate import concatenate_videoclips
 import openai
 import json
+from scipy.io import wavfile
+import numpy as np
+import noisereduce as nr
 
 def load_api_key():
     with open('creds/celtic-guru-247118-9e8cccc27c4a.json', 'r') as json_file:
@@ -32,8 +35,21 @@ def remove_empty_space(temp_audio_path, export_path):
         silence_segment = AudioSegment.silent(duration=500)  # Half a second of silencze
         modified_audio += silence_segment + chunk
 
-    modified_audio.export(f"{export_path}/cleaned_audio.wav", format="wav")
+    cleaned_path = f"{export_path}/cleaned_audio.wav"
+    modified_audio.export(cleaned_path, format="wav")
+    # clean_noise(cleaned_path)
     print("cleaned audio saved")
+
+def clean_noise(path):
+    rate, data = wavfile.read(path)
+    original_shape = data.shape
+    data = np.reshape(data, (2, -1))
+    reduced_noise = nr.reduce_noise(
+        y=data,
+        sr=rate,
+        stationary=True
+    )
+    wavfile.write(path, rate, reduced_noise.reshape(original_shape))
 
 
 def all_silent(temp_audio_path):
