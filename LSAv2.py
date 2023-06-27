@@ -3,13 +3,12 @@ import sys
 import io
 import json
 import operator
+import random
 import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import TruncatedSVD
 from sklearn.cluster import KMeans
 import nltk
-from google.cloud import speech
-from google.cloud import storage
 from google.cloud import language_v1
 from nltk.corpus import stopwords
 from moviepy.video.io.VideoFileClip import VideoFileClip
@@ -23,14 +22,13 @@ from keras_preprocessing.sequence import pad_sequences
 from nltk.sentiment import SentimentIntensityAnalyzer
 
 import spacy
-import moviepy.editor as mp
 from datetime import timedelta
 import moviepy.editor as mp
-from pydub import AudioSegment, silence
 
 # local imports
 import translation
 import AudioProcessing
+import TextProcessing
 
 
 
@@ -52,102 +50,6 @@ original_video = VideoFileClip(video_file_name)
 segment_duration = 60
 TARGET_DURATION = 20 * 60;
 
-def upload_to_bucket(bucket_name, file_name):
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(bucket_name)
-    blob = bucket.blob(file_name)
-
-    if blob.exists():
-        blob.delete()
-
-    blob.chunk_size = 5 * 1024 * 1024 # Set 5 MB blob size so it doesn't timeout
-
-    blob.upload_from_filename(file_name)
-
-    print(f"File {file_name} uploaded to {file_name}.")
-
-    return blob.public_url
-
-def clean_sentences(sentences):
-    new_sentences = []
-
-    # Iterate over the sentences
-    i = 0
-    while i + 1 < len(sentences):
-        new_sentence = {}
-        current_sentence = sentences[i]
-        current_text = current_sentence['text']
-        current_start_time = current_sentence['start_time']
-        current_end_time = current_sentence['end_time']
-
-        next_sentence = sentences[i + 1]
-        next_text = next_sentence['text']
-        next_start_time = next_sentence['start_time']
-        next_end_time = next_sentence['end_time']
-
-        # Process the current sentence text with spaCy
-        current_doc = nlp(current_text)
-        next_doc = nlp(next_text)
-
-        # Check if the last token is the end of a sentence
-        #print(doc[-1])
-        if not current_doc[-1].text.endswith(('.', '!', '?')):
-            # Concatenate with the next sentence if it exists
-            if i + 1 < len(sentences):
-                # Concatenate the texts, update the end time
-                current_text += ' ' + next_text
-                new_sentence = {'text': current_text, 'start_time': current_start_time, 'end_time': next_end_time}
-                i += 1 # skip next sentence
-                new_sentences.append(new_sentence)
-        else:
-            new_sentences.append(current_sentence)
-
-        # Move to the next sentence
-        i += 1
-
-    return new_sentences
-
-
-def get_transcription(bucket_name, audio_path):
-    transcript_file = f"{folder_name}/{folder_name}.json"
-    client = speech.SpeechClient()
-    speech_audio = speech.RecognitionAudio(uri='gs://sermon-speech-audio/temp_audio.wav')
-    config = speech.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-        sample_rate_hertz=44100,
-        language_code='en-US',
-        audio_channel_count = 2,
-        enable_automatic_punctuation=True,
-        enable_word_time_offsets=True,
-        model='video',
-        use_enhanced=True)
-    
-    if os.path.exists(transcript_file):
-        with open(transcript_file, "r") as f:
-            sentences = json.load(f)
-    else:
-        upload_to_bucket(bucket_name, audio_path)
-        operation = client.long_running_recognize(config=config, audio=speech_audio)
-        print("Waiting for operation to complete...")
-        response = operation.result(timeout=5400)
-        sentences = []
-        for result in response.results:
-            alternatives = result.alternatives
-            
-            for alternative in alternatives:
-                sentence = alternative.transcript.strip()
-                if sentence:
-                    sentences.append({
-                        'text': sentence,
-                        'start_time': alternative.words[0].start_time.total_seconds(),
-                        'end_time': alternative.words[-1].end_time.total_seconds()
-                    })
-        sentences = clean_sentences(sentences)
-        with open(transcript_file, 'w') as f:
-            json.dump(sentences, f)
-
-    return sentences
-
 def calculate_relevance(text, sentences):
     transcript_docs = [nlp(segment['text']) for segment in sentences]
     transcript_texts = [doc.text for doc in transcript_docs]
@@ -168,12 +70,12 @@ def compute_sentiment_score(text):
 
 def order_by_relevance(bucket_name, audio_path):
     segments = []
-    sentences = get_transcription(bucket_name, audio_path)
+    sentences = TextProcessing.get_transcription(bucket_name, audio_path, folder_name)
 
     for index, sentence in enumerate(sentences):
         relevance_score = calculate_relevance(sentence['text'], sentences)
         sentiment_score = abs(compute_sentiment_score(sentence['text']))
-        combined_score = relevance_score * sentiment_score
+        combined_score = relevance_score * (sentiment_score * 0.75)
         segments.append({
             'text': sentence['text'],
             'relevance': combined_score,
@@ -189,7 +91,7 @@ def order_by_relevance(bucket_name, audio_path):
 
 
 def meme_segments(bucket_name, audio_path, chunk_duration=1.0):
-    sentences = get_transcription(bucket_name, audio_path)
+    sentences = TextProcessing.get_transcription(bucket_name, audio_path, folder_name)
 
     # Create a list of sentence embeddings.
     sentence_embeddings = []
@@ -259,7 +161,7 @@ def concatenate_segments(segments, video):
     return final_clip
 
 
-def create_summary_video(segments, target_duration, video):
+def create_summary_video(segments, target_duration, video, shuffle=False):
     summary_segments = []
     total_duration = timedelta(seconds=0)
     target_duration = timedelta(seconds=target_duration)
@@ -279,6 +181,10 @@ def create_summary_video(segments, target_duration, video):
         index += 1
 
     sorted_segments = sorted(summary_segments, key=lambda s: s["start_time"])
+
+    if shuffle:
+        random.shuffle(sorted_segments)
+        
     summary_video = concatenate_segments(sorted_segments, video)
 
     return summary_video
@@ -396,7 +302,7 @@ elif command == "meme":
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/meme_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 elif command == "caption":
-    sentences = get_transcription(bucket_name, audio_path)
+    sentences = TextProcessing.get_transcription(bucket_name, audio_path, folder_name)
     translation.generate_srt_files(sentences, folder_name)
 elif command == "download":
     download_video(video_file_name)

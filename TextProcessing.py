@@ -1,64 +1,88 @@
 import spacy
 import json
+import os
+from google.cloud import speech, storage
 
-def concatenate_sentences(transcriptions):
-    nlp = spacy.load('en_core_web_sm')
+def is_end_sentence(text):
+    nlp = spacy.load("en_core_web_sm")
+    doc = nlp(text)
+    return doc[-1].is_punct
+
+def concatenate_sentences(sentences):
     complete_sentences = []
-
-    for transcription in transcriptions:
-        text = transcription['text']
-        start_time = transcription['start_time']
-        end_time = transcription['end_time']
-
-        doc = nlp(text)
-        sentences = [sent.text for sent in doc.sents]
-
-        if not sentences:
-            continue
-
-        last_sentence = sentences[0]
-        for sentence in sentences[1:]:
-            if last_sentence[-1] not in ('.', '!', '?') and sentence[0].islower():
-                last_sentence += ' ' + sentence
-            else:
-                complete_sentences.append({
-                    'text': last_sentence.strip(),
-                    'start_time': start_time,
-                    'end_time': end_time
-                })
-                last_sentence = sentence
-
-        complete_sentences.append({
-            'text': last_sentence.strip(),
-            'start_time': start_time,
-            'end_time': end_time
-        })
+    current_sentence = sentences[0]["text"]
+    start_times = [sentences[0]["start_time"]]
+    end_times = [sentences[0]["end_time"]]
+    for sentence in sentences:
+        if len(current_sentence) == 0:
+            current_sentence = sentence["text"]
+            start_times.append(sentence["start_time"])
+            end_times.append(sentence["end_time"])
+        
+        if is_end_sentence(current_sentence):
+            complete_sentences.append({"text": current_sentence, "start_time": min(start_times), "end_time": max(end_times)})
+            current_sentence = ""
+            start_times = []
+            end_times = []
+        elif current_sentence != sentence["text"]:
+            current_sentence += " " + sentence["text"]
+            start_times.append(sentence["start_time"])
+            end_times.append(sentence["end_time"])
 
     return complete_sentences
 
-# Example usage
-json_data = '''
-[
-    {
-        "text": "Find if you would Esther chapter 5, the fifth chapter of the Book of Esther. You know, some might look at the story of Esther and see only a series of coincidences. Well, you know, it's just a coincidence that the king in a drunken stupor would call out to the queen vashti and insist that she present herself in front of himself and other drunk men in a way that we had degrade the office of",
-        "start_time": 0.1,
-        "end_time": 29.7
-    },
-    {
-        "text": "Queen. And therefore she said that she would not come and she was eventually deposed because of that action, which then opened the door for a new Queen. We might look and say, well, you know, it's just a coincidence that Mordecai and Esther remained and Susa it's just a coincidence that Esther would have found favor in the eyes of those to whom she was responsible and that she would eventually find",
-        "start_time": 30.0,
-        "end_time": 59.9
-    },
-    {
-        "text": "and favor in the eyes of the king and be elevated to the role of Queen.",
-        "start_time": 60.0,
-        "end_time": 66.0
-    }
-]
-'''
+def upload_to_bucket(bucket_name, file_name):
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(file_name)
 
-transcriptions = json.loads(json_data)
-complete_sentences = concatenate_sentences(transcriptions)
+    if blob.exists():
+        blob.delete()
 
-output_json = json.dumps(complete_sentences, indent=4)
-print(output_json)
+    blob.chunk_size = 5 * 1024 * 1024 # Set 5 MB blob size so it doesn't timeout
+
+    blob.upload_from_filename(file_name)
+
+    print(f"File {file_name} uploaded to {file_name}.")
+
+    return blob.public_url
+
+def get_transcription(bucket_name, audio_path, folder_name):
+    transcript_file = f"{folder_name}/{folder_name}.json"
+    client = speech.SpeechClient()
+    speech_audio = speech.RecognitionAudio(uri='gs://sermon-speech-audio/temp_audio.wav')
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        sample_rate_hertz=44100,
+        language_code='en-US',
+        audio_channel_count = 2,
+        enable_automatic_punctuation=True,
+        enable_word_time_offsets=True,
+        model='video',
+        use_enhanced=True)
+    
+    if os.path.exists(transcript_file):
+        with open(transcript_file, "r") as f:
+            sentences = json.load(f)
+    else:
+        upload_to_bucket(bucket_name, audio_path)
+        operation = client.long_running_recognize(config=config, audio=speech_audio)
+        print("Waiting for operation to complete...")
+        response = operation.result(timeout=5400)
+        sentences = []
+        for result in response.results:
+            alternatives = result.alternatives
+            
+            for alternative in alternatives:
+                sentence = alternative.transcript.strip()
+                if sentence:
+                    sentences.append({
+                        'text': sentence,
+                        'start_time': alternative.words[0].start_time.total_seconds(),
+                        'end_time': alternative.words[-1].end_time.total_seconds()
+                    })
+        sentences = concatenate_sentences(sentences)
+        with open(transcript_file, 'w') as f:
+            json.dump(sentences, f)
+
+    return sentences
