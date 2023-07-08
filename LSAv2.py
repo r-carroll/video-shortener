@@ -71,6 +71,7 @@ def order_by_relevance(bucket_name, audio_path):
     segments = []
     sentences = TextProcessing.get_transcription(bucket_name, audio_path, folder_name)
 
+    print("determining major topics and ordering sentences")
     for index, sentence in enumerate(sentences):
         relevance_score = calculate_relevance(sentence['text'], sentences)
         sentiment_score = abs(compute_sentiment_score(sentence['text']))
@@ -284,16 +285,19 @@ if command == "shorts" or command == "summarize":
     important_segments = order_by_relevance(bucket_name, audio_path)
 
 if command == "summarize":
+    print("building summary manifest")
     trimmed_segments = trim_segments(important_segments)
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/summary_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 elif command == "clean":
+    print("starting audio cleaning workflow")
     AudioProcessing.remove_empty_space(audio_path, folder_name)
 elif command == "unclean":
     chunks = AudioProcessing.all_silent(audio_path)
     silent_video = AudioProcessing.clips_to_video(original_video, chunks)
     silent_video.write_videofile(f"{folder_name}/silent_video.mp4", codec="libx264", audio_codec='aac')
 elif command == "shorts":
+    print("starting shorts workflow")
     write_segment_files(important_segments, original_video)
 elif command == "meme":
     important_segments = meme_segments(bucket_name, audio_path)
@@ -301,10 +305,11 @@ elif command == "meme":
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/meme_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 elif command == "caption":
-    sentences = TextProcessing.get_transcription(bucket_name, audio_path, folder_name)
+    print("starting caption workflow")
+    sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)["segments"]
     TextProcessing.generate_subtitles(sentences, folder_name)
-elif command == "download":
-    download_video(video_file_name)
+elif command == "test":
+    AudioProcessing.get_whisper_transcription(audio_path, folder_name)
 else:
     print(f"Available commands: \n shorts: generate 5 short-format videos" +
           f"\n summarize: generate a 20 minute summary video" +

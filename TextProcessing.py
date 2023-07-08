@@ -5,6 +5,13 @@ import datetime
 import srt
 from googletrans import Translator
 from google.cloud import speech, storage
+import openai
+
+def load_api_key():
+    with open('creds/celtic-guru-247118-9e8cccc27c4a.json', 'r') as json_file:
+        data = json.load(json_file)
+        api_key = data.get('open_ai_key')
+    return api_key
 
 def is_end_sentence(text):
     nlp = spacy.load("en_core_web_sm")
@@ -35,6 +42,7 @@ def concatenate_sentences(sentences):
     return complete_sentences
 
 def upload_to_bucket(bucket_name, file_name):
+    print("uploading audio to bucket")
     storage_client = storage.Client()
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(file_name)
@@ -51,6 +59,7 @@ def upload_to_bucket(bucket_name, file_name):
     return blob.public_url
 
 def get_transcription(bucket_name, audio_path, folder_name):
+    print("obtaining audio transcript")
     transcript_file = f"{folder_name}/{folder_name}.json"
     client = speech.SpeechClient()
     speech_audio = speech.RecognitionAudio(uri='gs://sermon-speech-audio/temp_audio.wav')
@@ -104,8 +113,8 @@ def translate_srt(sentences, target_language, folder):
     else:
         target_text = translated_texts[index].text
     
-    start_timedelta = datetime.timedelta(seconds=sentence["start_time"])
-    end_timedelta = datetime.timedelta(seconds=sentence["end_time"])
+    start_timedelta = datetime.timedelta(seconds=sentence["start"])
+    end_timedelta = datetime.timedelta(seconds=sentence["end"])
     translated_sentences.append(
         srt.Subtitle(
             index=index,
@@ -125,3 +134,24 @@ def generate_subtitles(sentences, folder):
 
     for language in target_languages:
         translate_srt(sentences, language, folder)
+
+import openai
+
+def gpt_viral_segments(sentences):
+    openai.api_key = load_api_key()
+    # Define your prompt for analyzing the transcript
+    prompt = f"Analyze the following transcript for viral segments:\n\n{transcript}"
+
+    # Make the API call to generate the analysis
+    response = openai.Completion.create(
+        engine='gpt-4',
+        prompt=prompt,
+        temperature=0.4,
+        n=5,  # Number of responses to generate
+        stop=None  # You can specify a stop condition if needed
+    )
+
+    # Extract the generated viral segments from the response
+    viral_segments = [choice['text'].strip() for choice in response['choices']]
+
+    return viral_segments
