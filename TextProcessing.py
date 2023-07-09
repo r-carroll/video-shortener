@@ -135,8 +135,6 @@ def generate_subtitles(sentences, folder):
     for language in target_languages:
         translate_srt(sentences, language, folder)
 
-import openai
-
 def gpt_viral_segments(sentences):
     openai.api_key = load_api_key()
     # Define your prompt for analyzing the transcript

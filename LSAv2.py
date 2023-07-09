@@ -4,6 +4,7 @@ import io
 import json
 import operator
 import random
+import ssl
 import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import TruncatedSVD
@@ -30,7 +31,7 @@ import AudioProcessing
 import TextProcessing
 
 
-
+ssl._create_default_https_context = ssl._create_unverified_context
 nltk.download('punkt')
 nltk.download('stopwords')
 nltk.download('vader_lexicon')
