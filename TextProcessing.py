@@ -1,11 +1,26 @@
 import spacy
 import json
 import os
+import ssl
 import datetime
 import srt
 from googletrans import Translator
 from google.cloud import speech, storage
 import openai
+from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
+import moviepy.video.fx.all as vfx
+from moviepy.video.tools.subtitles import SubtitlesClip
+from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
+from langchain.chains import ConversationalRetrievalChain, RetrievalQA
+from langchain.chat_models import ChatOpenAI
+from langchain.document_loaders import TextLoader, JSONLoader
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.indexes import VectorstoreIndexCreator
+from langchain.indexes.vectorstore import VectorStoreIndexWrapper
+from langchain.llms import OpenAI
+from langchain.vectorstores import Chroma
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 def load_api_key():
     with open('creds/celtic-guru-247118-9e8cccc27c4a.json', 'r') as json_file:
@@ -41,6 +56,29 @@ def concatenate_sentences(sentences):
 
     return complete_sentences
 
+def whisper_concatenate_sentences(sentences):
+    complete_sentences = []
+    current_sentence = sentences[0]["text"]
+    start_times = [sentences[0]["start"]]
+    end_times = [sentences[0]["end"]]
+    for sentence in sentences:
+        if len(current_sentence) == 0:
+            current_sentence = sentence["text"]
+            start_times.append(sentence["start"])
+            end_times.append(sentence["end"])
+        
+        if is_end_sentence(current_sentence):
+            complete_sentences.append({"text": current_sentence, "start": min(start_times), "end": max(end_times)})
+            current_sentence = ""
+            start_times = []
+            end_times = []
+        elif current_sentence != sentence["text"]:
+            current_sentence += " " + sentence["text"]
+            start_times.append(sentence["start"])
+            end_times.append(sentence["end"])
+
+    return complete_sentences
+
 def upload_to_bucket(bucket_name, file_name):
     print("uploading audio to bucket")
     storage_client = storage.Client()
@@ -59,7 +97,6 @@ def upload_to_bucket(bucket_name, file_name):
     return blob.public_url
 
 def get_transcription(bucket_name, audio_path, folder_name):
-    print("obtaining audio transcript")
     transcript_file = f"{folder_name}/{folder_name}.json"
     client = speech.SpeechClient()
     speech_audio = speech.RecognitionAudio(uri='gs://sermon-speech-audio/temp_audio.wav')
@@ -129,27 +166,58 @@ def translate_srt(sentences, target_language, folder):
 
   return translated_srt
 
-def generate_subtitles(sentences, folder):
+def generate_subtitles(sentences, folder, video):
     target_languages = ['en', 'es', 'pt']
 
     for language in target_languages:
         translate_srt(sentences, language, folder)
 
-def gpt_viral_segments(sentences):
+    generator = lambda text: TextClip(text, font='Helvetica-bold', method='caption',
+                                      fontsize=36, color='white', size=(video.w * 0.8, None), bg_color='black')
+    #generator = vfx.fadein(generator, 2)
+    sub = SubtitlesClip(f"{folder}/en.srt", generator)
+    final = CompositeVideoClip([video, sub.set_position((.1, .9), relative=True)])
+    final = final.set_audio(video.audio)
+    final.write_videofile(f"{folder}/subbed.mp4", fps=video.fps, audio_codec='aac')
+
+def gpt_viral_segments(sentences, folder):
     openai.api_key = load_api_key()
-    # Define your prompt for analyzing the transcript
-    prompt = f"Analyze the following transcript for viral segments:\n\n{transcript}"
+    os.environ["OPENAI_API_KEY"] = load_api_key()
+    # prompt = f"The context provided is a transcript of a sermon. Please examine the entirety of the segments array and return the top 5 segments that are the most relevant, and most likely to go viral if posted online."
+    prompt = "please print the context"
 
-    # Make the API call to generate the analysis
-    response = openai.Completion.create(
-        engine='gpt-4',
-        prompt=prompt,
-        temperature=0.4,
-        n=5,  # Number of responses to generate
-        stop=None  # You can specify a stop condition if needed
+    # if os.path.exists(f"{folder}/model"):
+    #     print("Reusing index...\n")
+    #     vectorstore = Chroma(persist_directory=f"{folder}/model", embedding_function=OpenAIEmbeddings())
+    #     index = VectorStoreIndexWrapper(vectorstore=vectorstore)
+    # else:
+    #     print("building model")
+    #     loader = JSONLoader(
+    #         file_path=f"{folder}/whisper-{folder}.json",
+    #         jq_schema='.segments[]',
+    #         text_content=False
+    #     )
+
+    #     loader = TextLoader(f"{folder}/whisper-{folder}.json")
+    #     index = VectorstoreIndexCreator(vectorstore_kwargs={"persist_directory":f"{folder}/model"}).from_loaders([loader])
+
+    # loader = JSONLoader(
+    #     file_path=f"{folder}/whisper-{folder}.json",
+    #     jq_schema='.segments[]',
+    #     text_content=False
+    # )
+
+    # documents = loader.load()
+
+    chain = ConversationalRetrievalChain.from_llm(
+        llm=ChatOpenAI(model="gpt-3.5-turbo"),
+        retriever=index.vectorstore.as_retriever(search_kwargs={"k": 1}),
     )
+    # chain = ConversationalRetrievalChain.from_llm(
+    #     llm=ChatOpenAI(model="gpt-3.5-turbo"),
+    #     retriever=index.vectorstore.as_retriever(search_kwargs={"k": 1}),
+    # )
 
-    # Extract the generated viral segments from the response
-    viral_segments = [choice['text'].strip() for choice in response['choices']]
-
-    return viral_segments
+    result = chain({"question": prompt, "chat_history": []})
+    print(result['answer'])
+    return result['answer']

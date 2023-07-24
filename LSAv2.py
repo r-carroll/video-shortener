@@ -39,7 +39,6 @@ nlp = spacy.load("en_core_web_sm")
 stop_words = set(stopwords.words('english'))
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "creds/celtic-guru-247118-9e8cccc27c4a.json"
 audio_path = 'temp_audio.wav'
-bucket_name = 'sermon-speech-audio'
 video_file_name = sys.argv[2]
 command = sys.argv[1]
 file_without_path = os.path.basename(video_file_name)
@@ -68,9 +67,9 @@ def compute_sentiment_score(text):
     sentiment_analyzer = SentimentIntensityAnalyzer()
     return sentiment_analyzer.polarity_scores(text)['compound']
 
-def order_by_relevance(bucket_name, audio_path):
+def order_by_relevance(audio_path):
     segments = []
-    sentences = TextProcessing.get_transcription(bucket_name, audio_path, folder_name)
+    sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)
 
     print("determining major topics and ordering sentences")
     for index, sentence in enumerate(sentences):
@@ -91,8 +90,8 @@ def order_by_relevance(bucket_name, audio_path):
     return segments
 
 
-def meme_segments(bucket_name, audio_path, chunk_duration=1.0):
-    sentences = TextProcessing.get_transcription(bucket_name, audio_path, folder_name)
+def meme_segments(audio_path, chunk_duration=1.0):
+    sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)
 
     # Create a list of sentence embeddings.
     sentence_embeddings = []
@@ -283,7 +282,7 @@ with io.open(audio_path, 'rb') as audio_file:
 important_segments = []
 
 if command == "shorts" or command == "summarize":
-    important_segments = order_by_relevance(bucket_name, audio_path)
+    important_segments = order_by_relevance(audio_path)
 
 if command == "summarize":
     print("building summary manifest")
@@ -301,16 +300,17 @@ elif command == "shorts":
     print("starting shorts workflow")
     write_segment_files(important_segments, original_video)
 elif command == "meme":
-    important_segments = meme_segments(bucket_name, audio_path)
+    important_segments = meme_segments(audio_path)
     trimmed_segments = trim_segments(important_segments)
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/meme_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 elif command == "caption":
     print("starting caption workflow")
     sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)["segments"]
-    TextProcessing.generate_subtitles(sentences, folder_name)
+    TextProcessing.generate_subtitles(sentences, folder_name, original_video)
 elif command == "test":
-    AudioProcessing.get_whisper_transcription(audio_path, folder_name)
+    sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)
+    TextProcessing.gpt_viral_segments(sentences, folder_name)
 else:
     print(f"Available commands: \n shorts: generate 5 short-format videos" +
           f"\n summarize: generate a 20 minute summary video" +

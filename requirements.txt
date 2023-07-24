@@ -17,5 +17,8 @@ googletrans==3.1.0a0
 srt
 pytube
 openai
+langchain
+chromadb
+jq
 git+https://github.com/openai/whisper.git
 noisereduce
