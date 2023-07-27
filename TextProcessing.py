@@ -18,7 +18,6 @@ from langchain.embeddings import OpenAIEmbeddings
 from langchain.indexes import VectorstoreIndexCreator
 from langchain.indexes.vectorstore import VectorStoreIndexWrapper
 from langchain.llms import OpenAI
-from langchain.vectorstores import Chroma
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
@@ -169,8 +168,8 @@ def translate_srt(sentences, target_language, folder):
 def generate_subtitles(sentences, folder, video):
     target_languages = ['en', 'es', 'pt']
 
-    # for language in target_languages:
-    #     translate_srt(sentences, language, folder)
+    for language in target_languages:
+        translate_srt(sentences, language, folder)
 
     generator = lambda text: TextClip(text, font='Helvetica-bold', method='caption',
                                       fontsize=36, color='white', size=(video.w * 0.8, None), bg_color='black')
@@ -178,7 +177,7 @@ def generate_subtitles(sentences, folder, video):
     sub = vfx.fadein(sub, 2)
     final = CompositeVideoClip([video, sub.set_position((.1, .9), relative=True)])
     final = final.set_audio(video.audio)
-    final.subclip(0, 10).write_videofile(f"{folder}/subbed.mp4", fps=video.fps, audio_codec='aac')
+    final.write_videofile(f"{folder}/subbed.mp4", fps=video.fps, audio_codec='aac')
 
 def gpt_viral_segments(sentences, folder):
     openai.api_key = load_api_key()
