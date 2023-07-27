@@ -169,55 +169,17 @@ def translate_srt(sentences, target_language, folder):
 def generate_subtitles(sentences, folder, video):
     target_languages = ['en', 'es', 'pt']
 
-    for language in target_languages:
-        translate_srt(sentences, language, folder)
+    # for language in target_languages:
+    #     translate_srt(sentences, language, folder)
 
     generator = lambda text: TextClip(text, font='Helvetica-bold', method='caption',
                                       fontsize=36, color='white', size=(video.w * 0.8, None), bg_color='black')
-    #generator = vfx.fadein(generator, 2)
     sub = SubtitlesClip(f"{folder}/en.srt", generator)
+    sub = vfx.fadein(sub, 2)
     final = CompositeVideoClip([video, sub.set_position((.1, .9), relative=True)])
     final = final.set_audio(video.audio)
-    final.write_videofile(f"{folder}/subbed.mp4", fps=video.fps, audio_codec='aac')
+    final.subclip(0, 10).write_videofile(f"{folder}/subbed.mp4", fps=video.fps, audio_codec='aac')
 
 def gpt_viral_segments(sentences, folder):
     openai.api_key = load_api_key()
-    os.environ["OPENAI_API_KEY"] = load_api_key()
-    # prompt = f"The context provided is a transcript of a sermon. Please examine the entirety of the segments array and return the top 5 segments that are the most relevant, and most likely to go viral if posted online."
-    prompt = "please print the context"
-
-    # if os.path.exists(f"{folder}/model"):
-    #     print("Reusing index...\n")
-    #     vectorstore = Chroma(persist_directory=f"{folder}/model", embedding_function=OpenAIEmbeddings())
-    #     index = VectorStoreIndexWrapper(vectorstore=vectorstore)
-    # else:
-    #     print("building model")
-    #     loader = JSONLoader(
-    #         file_path=f"{folder}/whisper-{folder}.json",
-    #         jq_schema='.segments[]',
-    #         text_content=False
-    #     )
-
-    #     loader = TextLoader(f"{folder}/whisper-{folder}.json")
-    #     index = VectorstoreIndexCreator(vectorstore_kwargs={"persist_directory":f"{folder}/model"}).from_loaders([loader])
-
-    # loader = JSONLoader(
-    #     file_path=f"{folder}/whisper-{folder}.json",
-    #     jq_schema='.segments[]',
-    #     text_content=False
-    # )
-
-    # documents = loader.load()
-
-    chain = ConversationalRetrievalChain.from_llm(
-        llm=ChatOpenAI(model="gpt-3.5-turbo"),
-        retriever=index.vectorstore.as_retriever(search_kwargs={"k": 1}),
-    )
-    # chain = ConversationalRetrievalChain.from_llm(
-    #     llm=ChatOpenAI(model="gpt-3.5-turbo"),
-    #     retriever=index.vectorstore.as_retriever(search_kwargs={"k": 1}),
-    # )
-
-    result = chain({"question": prompt, "chat_history": []})
-    print(result['answer'])
-    return result['answer']
+    return
