@@ -18,6 +18,7 @@ from langchain.embeddings import OpenAIEmbeddings
 from langchain.indexes import VectorstoreIndexCreator
 from langchain.indexes.vectorstore import VectorStoreIndexWrapper
 from langchain.llms import OpenAI
+import pdb
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
@@ -170,15 +171,23 @@ def generate_subtitles(sentences, folder, video):
 
     for language in target_languages:
         translate_srt(sentences, language, folder)
-
+        
     generator = lambda text: TextClip(text, font='Helvetica-bold', method='caption',
                                       fontsize=36, color='white', size=(video.w * 0.8, None), bg_color='black')
     sub = SubtitlesClip(f"{folder}/en.srt", generator)
-    # sub = vfx.fadein(sub, 2)
     final = CompositeVideoClip([video, sub.set_position((.1, .9), relative=True)])
     final = final.set_audio(video.audio)
     final.write_videofile(f"{folder}/subbed.mp4", fps=video.fps, audio_codec='aac')
 
 def gpt_viral_segments(sentences, folder):
     openai.api_key = load_api_key()
+
+    response = openai.ChatCompletion.create(
+    model="gpt-4",
+    messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Who won the world series in 2020?"}
+        ]
+    )
+    print(response['choices'][0]['message'])
     return

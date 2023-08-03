@@ -69,18 +69,18 @@ def compute_sentiment_score(text):
 
 def order_by_relevance(audio_path):
     segments = []
-    sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)
+    sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)['segments']
 
     print("determining major topics and ordering sentences")
-    for index, sentence in enumerate(sentences):
+    for sentence in sentences:
         relevance_score = calculate_relevance(sentence['text'], sentences)
         sentiment_score = abs(compute_sentiment_score(sentence['text']))
         combined_score = relevance_score * (sentiment_score * 0.75)
         segments.append({
             'text': sentence['text'],
             'relevance': combined_score,
-            'start_time': sentence['start_time'],
-            'end_time': sentence['end_time']
+            'start': sentence['start'],
+            'end': sentence['end']
         })
 
     segments.sort(key=operator.itemgetter('relevance'), reverse=True)
@@ -117,8 +117,8 @@ def meme_segments(audio_path, chunk_duration=1.0):
         ordered_sentence_data = []
         for index in ordered_sentence_indices:
             sentence_data = sentences[index]
-            start_time = sentence_data['start_time']
-            end_time = sentence_data['end_time']
+            start_time = sentence_data['start']
+            end_time = sentence_data['end']
             duration = end_time - start_time
             num_chunks = int(np.ceil(duration / chunk_duration))
 
@@ -129,8 +129,8 @@ def meme_segments(audio_path, chunk_duration=1.0):
                     chunk_end_time = chunk_start_time + chunk_duration_actual
                     chunk_data = {
                         'text': sentence_data['text'],
-                        'start_time': chunk_start_time,
-                        'end_time': chunk_end_time
+                        'start': chunk_start_time,
+                        'end': chunk_end_time
                     }
                     ordered_sentence_data.append(chunk_data)
             else:
@@ -143,8 +143,8 @@ def meme_segments(audio_path, chunk_duration=1.0):
 
 
 def condense_segment(segment, video):
-    start_time = segment['start_time']
-    end_time = segment['end_time']
+    start_time = segment['start']
+    end_time = segment['end']
     video_segment = video.subclip(start_time, end_time)
     return video_segment
 
@@ -180,7 +180,7 @@ def create_summary_video(segments, target_duration, video, shuffle=False):
             total_duration += calculate_segment_duration(trimmed_segment)
         index += 1
 
-    sorted_segments = sorted(summary_segments, key=lambda s: s["start_time"])
+    sorted_segments = sorted(summary_segments, key=lambda s: s["start"])
 
     if shuffle:
         random.shuffle(sorted_segments)
@@ -196,8 +196,8 @@ def write_segment_files(segments, video):
         os.mkdir(f"{folder_name}/shorts")
 
     while index < 5 or index >= len(segments):
-        start_time = segments[index]['start_time']
-        end_time = segments[index]['end_time']
+        start_time = segments[index]['start']
+        end_time = segments[index]['end']
         segment_clip = video.subclip(start_time, end_time)
         segment_filename = f"segment_{start_time}_{end_time}.mp4"
         segment_clip.write_videofile(f"{folder_name}/shorts/{segment_filename}", codec="libx264", audio_codec='aac')
@@ -212,8 +212,8 @@ def write_segment_files(segments, video):
 
 
 def calculate_segment_duration(segment):
-    start_time = timedelta(seconds=segment["start_time"])
-    end_time = timedelta(seconds=segment["end_time"])
+    start_time = timedelta(seconds=segment["start"])
+    end_time = timedelta(seconds=segment["end"])
     return end_time - start_time
 
 def get_longest_subsegment(segment, max_duration):
@@ -222,12 +222,12 @@ def get_longest_subsegment(segment, max_duration):
     else:
         # Find the longest subsegment that fits in the remaining time
         subsegment = segment.copy()
-        subsegment["end_time"] = segment["start_time"] + max_duration
+        subsegment["end"] = segment["start"] + max_duration
         return subsegment
     
 def trim_segment(segment, max_duration):
-    start_time = segment["start_time"]
-    end_time = segment["end_time"]
+    start_time = segment["start"]
+    end_time = segment["end"]
     duration = calculate_segment_duration(segment)
 
     if duration <= max_duration:
@@ -241,15 +241,15 @@ def trim_segment(segment, max_duration):
 
     # Create a new segment with the trimmed time range
     trimmed_segment = {
-        "start_time": start_time,
-        "end_time": new_end_time,
+        "start": start_time,
+        "end": new_end_time,
     }
 
     return trimmed_segment
 
 def trim_segments(segments):
     # Create a dictionary to map start times to segments
-    segment_dict = {segment["start_time"]: segment for segment in segments}
+    segment_dict = {segment["start"]: segment for segment in segments}
 
     # Sort the start times in ascending order
     start_times = sorted(segment_dict.keys())
@@ -261,12 +261,12 @@ def trim_segments(segments):
         segment = segment_dict[start_time]
 
         # If the segment overlaps with the previous one, trim it
-        if segment["start_time"] < previous_end_time:
-            segment["start_time"] = previous_end_time
+        if segment["start"] < previous_end_time:
+            segment["start"] = previous_end_time
 
         # Add the trimmed segment to the list
         trimmed_segments.append(segment)
-        previous_end_time = segment["end_time"]
+        previous_end_time = segment["end"]
 
     # Restore the original order of the segments
     sorted_segments = sorted(trimmed_segments, key=lambda s: segments.index(s))
@@ -281,7 +281,7 @@ with io.open(audio_path, 'rb') as audio_file:
 
 important_segments = []
 
-if command == "shorts" or command == "summarize":
+if command == "shorts" or command == "summarize" or command == "all":
     important_segments = order_by_relevance(audio_path)
 
 if command == "summarize":
@@ -289,22 +289,22 @@ if command == "summarize":
     trimmed_segments = trim_segments(important_segments)
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/summary_video.mp4", fps=24, codec='libx264', audio_codec='aac')
-elif command == "clean":
+if command == "clean" or command == "all":
     print("starting audio cleaning workflow")
     AudioProcessing.remove_empty_space(audio_path, folder_name)
-elif command == "unclean":
+if command == "unclean":
     chunks = AudioProcessing.all_silent(audio_path)
     silent_video = AudioProcessing.clips_to_video(original_video, chunks)
     silent_video.write_videofile(f"{folder_name}/silent_video.mp4", codec="libx264", audio_codec='aac')
-elif command == "shorts":
+if command == "shorts" or command == "all":
     print("starting shorts workflow")
     write_segment_files(important_segments, original_video)
-elif command == "meme":
+if command == "meme":
     important_segments = meme_segments(audio_path)
     trimmed_segments = trim_segments(important_segments)
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/meme_video.mp4", fps=24, codec='libx264', audio_codec='aac')
-elif command == "caption":
+if command == "caption" or command == "all":
     print("starting caption workflow")
     sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)["segments"]
     TextProcessing.generate_subtitles(sentences, folder_name, original_video)
@@ -317,4 +317,5 @@ else:
           f"\n clean: remove pauses and empty space, cleans up audio" +
           f"\n unclean: only the pauses" +
           f"\n caption: generate SRT files for English, Spanish, and Portuguese" +
+          f"\n all: cleans, shorts, and captions" +
           f"\n meme: just make a disaster")
