@@ -4,6 +4,7 @@ import os
 import ssl
 import datetime
 import srt
+import markdown
 from googletrans import Translator
 from google.cloud import speech, storage
 import openai
@@ -179,15 +180,64 @@ def generate_subtitles(sentences, folder, video):
     final = final.set_audio(video.audio)
     final.write_videofile(f"{folder}/subbed.mp4", fps=video.fps, audio_codec='aac')
 
-def gpt_viral_segments(sentences, folder):
+def get_insights(sentences, folder):
     openai.api_key = load_api_key()
+    gpt_file = f"{folder}/insights.txt"
 
-    response = openai.ChatCompletion.create(
-    model="gpt-4",
-    messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Who won the world series in 2020?"}
-        ]
-    )
-    print(response['choices'][0]['message'])
-    return
+    if os.path.exists(gpt_file):
+        with open(gpt_file) as f:
+                data = f.read()
+    else:
+        prompt_string = (f"Please provide a chapter breakdown, brief summary, key scripture passages, and top quotes given the following manuscript and included timestamps. Please include the timestamps with the chapters. The timestamps provided are in seconds, please convert them to minutes and seconds in the output by dividing them by 60 and rounding to 2 decimal places.\n\n"
+                        f"{sentences}")
+        response = openai.ChatCompletion.create(
+        model="gpt-4-1106-preview",
+        messages=[
+                {"role": "system", "content": "You are textual analysis and insights tool"},
+                {"role": "user", "content": prompt_string}
+            ]
+        )
+
+        data = response['choices'][0]['message']['content']
+
+        with open(gpt_file, 'w') as f:
+            f.write(data)
+    
+    
+    # json_string = data.split('`json')[1].split('`')[0]
+    # json_data = json.loads(json_string)
+
+    # # Extract the chapter information
+    # chapters = json_data['chapters']
+    # summary = json_data['summary']
+    # key_passages = json_data['key_passages']
+    # quotes = json_data['quotes']
+
+    # with open(f'{folder}/shorts.json', 'w') as f:
+    #     f.write(json.dumps(json_data['viral_shorts']))
+
+
+    # # Create a file for the output
+    # with open(f'{folder}/insights.txt', 'w') as f:
+    #     f.write('### Chapter Breakdown\n\n')
+    #     for chapter in chapters:
+    #         title = chapter['title']
+    #         start = chapter['start']
+    #         end = chapter['end']
+
+    #         f.write(f'**{title}**\n')
+    #         f.write(f'Start: {start}\n')
+    #         f.write(f'End: {end}\n\n')
+
+    #     f.write('\n\n### Summary\n\n')
+    #     f.write(summary)
+
+    #     f.write('\n\n### Key Passages')
+    #     for passage in key_passages:
+    #         f.write(f'\n\n{passage}')
+
+    #     f.write('\n\n### Quotes')
+    #     for quote in quotes:
+    #         f.write(f'\n\n{quote}')
+
+    return data

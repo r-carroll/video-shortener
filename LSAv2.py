@@ -67,9 +67,8 @@ def compute_sentiment_score(text):
     sentiment_analyzer = SentimentIntensityAnalyzer()
     return sentiment_analyzer.polarity_scores(text)['compound']
 
-def order_by_relevance(audio_path):
+def order_by_relevance(sentences):
     segments = []
-    sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)['segments']
 
     print("determining major topics and ordering sentences")
     for sentence in sentences:
@@ -281,11 +280,16 @@ with io.open(audio_path, 'rb') as audio_file:
 
 important_segments = []
 
-if command == "shorts" or command == "summarize" or command == "all":
-    important_segments = order_by_relevance(audio_path)
+# Operations needed for all flows
+sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)
+TextProcessing.get_insights(sentences, folder_name)
+
+
+    
 
 if command == "summarize":
     print("building summary manifest")
+    important_segments = order_by_relevance(sentences)
     trimmed_segments = trim_segments(important_segments)
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/summary_video.mp4", fps=24, codec='libx264', audio_codec='aac')
@@ -298,6 +302,9 @@ if command == "unclean":
     silent_video.write_videofile(f"{folder_name}/silent_video.mp4", codec="libx264", audio_codec='aac')
 if command == "shorts" or command == "all":
     print("starting shorts workflow")
+    # with open(f'{folder_name}/shorts.json') as f:
+    #     viral_segments = json.load(f)
+    important_segments = order_by_relevance(sentences)
     write_segment_files(important_segments, original_video)
 if command == "meme":
     important_segments = meme_segments(audio_path)
@@ -306,11 +313,7 @@ if command == "meme":
     summary_video.write_videofile(f"{folder_name}/meme_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 if command == "caption" or command == "all":
     print("starting caption workflow")
-    sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)["segments"]
     TextProcessing.generate_subtitles(sentences, folder_name, original_video)
-elif command == "test":
-    sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)
-    TextProcessing.gpt_viral_segments(sentences, folder_name)
 else:
     print(f"Available commands: \n shorts: generate 5 short-format videos" +
           f"\n summarize: generate a 20 minute summary video" +

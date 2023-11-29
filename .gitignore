@@ -2,6 +2,7 @@
 *.mp4
 *.wav
 *.m4v
+*.mov
 
 # Transcripts
 *.json

@@ -1,0 +1,92 @@
+```json
+{
+  "chapters": [
+    {
+      "number": 1,
+      "start_time": "0:00",
+      "end_time": "9:09",
+      "title": "The Coincidences in Esther"
+    },
+    {
+      "number": 2,
+      "start_time": "9:09",
+      "end_time": "23:33",
+      "title": "Esther's Preparation and Approach to the King"
+    },
+    {
+      "number": 3,
+      "start_time": "23:33",
+      "end_time": "34:11",
+      "title": "Haman's Plot and Esther's Feast"
+    },
+    {
+      "number": 4,
+      "start_time": "34:11",
+      "end_time": "44:05",
+      "title": "The Machinations of Hatred and Pride"
+    },
+    {
+      "number": 5,
+      "start_time": "44:05",
+      "end_time": "59:19",
+      "title": "Seeking God in the Face of Difficulties"
+    }
+  ],
+  "summary": "Esther chapter 5 shows various 'coincidences' that align to create a pathway for the Jewish people's deliverance from a grave threat under Persian rule. The narrative centers on Esther's courageous plan to approach King Ahasuerus without being summoned, a risky move that could result in her death. Despite the danger, she prepares herself and secures two banquets with the king and Haman, setting the scene for her later request for her people's salvation. Meanwhile, Haman's obsession with being respected leads to a plot to hang Mordecai, his enemy. Through the experiences of Esther and Haman, the scripture examines themes of humility versus pride and how humans interpret and respond to 'coincidences' as either chance or divine providence.",
+  "key_passages": [
+    {
+      "Esther 5:1-2": "On the third day Esther put on her royal robes and stood in the inner court of the king’s palace... And when the king saw Queen Esther standing in the court, she won favor in his sight, and he held out to Esther the golden scepter that was in his hand."
+    },
+    {
+      "Esther 5:3-4": "And the king said to her, 'What is it, Queen Esther? What is your request? It shall be given you, even to the half of my kingdom.' And Esther said, 'If it please the king, let the king and Haman come today to a feast that I have prepared for the king.'"
+    },
+    {
+      "Esther 5:9-14": "Then Haman went out that day joyful and glad of heart. But when Haman saw Mordecai in the king’s gate, that he neither rose nor trembled before him, he was filled with wrath against Mordecai... And Haman recounted to them the splendor of his riches... yet all this is worth nothing to me, so long as I see Mordecai the Jew sitting at the king’s gate."
+    }
+  ],
+  "quotes": [
+    {
+      "timestamp": "23:33",
+      "quote": "Esther put on her royal robes... and won favor in his sight."
+    },
+    {
+      "timestamp": "34:11",
+      "quote": "What if I told you that there really is no such thing as coincidence?"
+    },
+    {
+      "timestamp": "44:05",
+      "quote": "God often allows difficulties to expose the orientation of your heart."
+    },
+    {
+      "timestamp": "57:32",
+      "quote": "Coincidence is God's way of remaining anonymous."
+    },
+    {
+      "timestamp": "59:19",
+      "quote": "God is on every page, orchestrating every act to bring about his greater purpose."
+    }
+  ],
+  "viral_shorts": [
+    {
+      "start": 213120,
+      "end": 238320
+    },
+    {
+      "start": 294720,
+      "end": 314160
+    },
+    {
+      "start": 132080,
+      "end": 161840
+    },
+    {
+      "start": 327600,
+      "end": 348240
+    },
+    {
+      "start": 466240,
+      "end": 495840
+    }
+  ]
+}
+```

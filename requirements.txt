@@ -21,3 +21,4 @@ langchain
 jq
 git+https://github.com/openai/whisper.git
 noisereduce
+markdown

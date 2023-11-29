@@ -121,10 +121,16 @@ def get_whisper_transcription(audio_path, folder_name):
         with open(transcript_file, "r") as f:
             return json.load(f)
     else:
+        desired_keys = ["id", "start", "end", "text"]
+        condensed_data = []
         model = whisper.load_model("base")
         result = model.transcribe(audio_path)
+        for segment in result["segments"]:
+            condensed_segment = {key: segment[key] for key in desired_keys}
+            condensed_data.append(condensed_segment)
+
         with open(transcript_file, 'w') as f:
-            json.dump(result, f)
-        return result
+            json.dump(condensed_data, f)
+        return condensed_data
 
     # print(result)
