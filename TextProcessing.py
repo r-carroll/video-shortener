@@ -182,25 +182,47 @@ def generate_subtitles(sentences, folder, video):
 
 def get_insights(sentences, folder):
     openai.api_key = load_api_key()
-    gpt_file = f"{folder}/insights.txt"
+    insights_file = f"{folder}/insights.txt"
+    chapters_file = f"{folder}/chapters.txt"
 
-    if os.path.exists(gpt_file):
-        with open(gpt_file) as f:
+    if os.path.exists(insights_file):
+        with open(insights_file) as f:
                 data = f.read()
     else:
-        prompt_string = (f"Please provide a chapter breakdown, brief summary, key scripture passages, and top quotes given the following manuscript and included timestamps. Please include the timestamps with the chapters. The timestamps provided are in seconds, please convert them to minutes and seconds in the output by dividing them by 60 and rounding to 2 decimal places.\n\n"
+        insights_prompt_string = (f"Please provide a brief summary, key scripture passages, and top quotes given the following manuscript.\n\n"
                         f"{sentences}")
+
         response = openai.ChatCompletion.create(
         model="gpt-4-1106-preview",
         messages=[
                 {"role": "system", "content": "You are textual analysis and insights tool"},
-                {"role": "user", "content": prompt_string}
+                {"role": "user", "content": insights_prompt_string}
             ]
         )
 
         data = response['choices'][0]['message']['content']
 
-        with open(gpt_file, 'w') as f:
+        with open(insights_file, 'w') as f:
+            f.write(data)
+    
+    if os.path.exists(chapters_file):
+        with open(chapters_file) as f:
+                data = f.read()
+    else:
+        chapter_prompt_string = (f"Please provide a chapter breakdown given the following manuscript and included timestamps. Please include the timestamps with the chapters. The timestamps provided are in seconds, please convert them to minutes and seconds in the output by dividing them by 60 and rounding to 2 decimal places.\n\n"
+                        f"{sentences}")
+
+        response = openai.ChatCompletion.create(
+        model="gpt-4-1106-preview",
+        messages=[
+                {"role": "system", "content": "You are textual analysis and insights tool"},
+                {"role": "user", "content": chapter_prompt_string}
+            ]
+        )
+
+        data = response['choices'][0]['message']['content']
+
+        with open(chapters_file, 'w') as f:
             f.write(data)
     
     
