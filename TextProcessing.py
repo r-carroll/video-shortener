@@ -209,7 +209,7 @@ def get_insights(sentences, folder):
         with open(chapters_file) as f:
                 data = f.read()
     else:
-        chapter_prompt_string = (f"Please provide a chapter breakdown given the following manuscript and included timestamps. Please include the timestamps with the chapters. The timestamps provided are in seconds, please convert them to minutes and seconds in the output by dividing them by 60 and rounding to 2 decimal places.\n\n"
+        chapter_prompt_string = (f"Please provide a chapter breakdown given the following manuscript and included timestamps. Please include the timestamps with the chapters. The timestamps provided are in seconds, please convert them to minutes and seconds in the output by dividing them by 60 and rounding to 2 decimal places. There should be no more than 5 chapters.\n\n"
                         f"{sentences}")
 
         response = openai.ChatCompletion.create(
