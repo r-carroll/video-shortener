@@ -4,21 +4,12 @@ import os
 import ssl
 import datetime
 import srt
-import markdown
 from googletrans import Translator
 from google.cloud import speech, storage
 import openai
-from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
+from moviepy.editor import TextClip, CompositeVideoClip
 import moviepy.video.fx.all as vfx
 from moviepy.video.tools.subtitles import SubtitlesClip
-from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
-from langchain.chains import ConversationalRetrievalChain, RetrievalQA
-from langchain.chat_models import ChatOpenAI
-from langchain.document_loaders import TextLoader, JSONLoader
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.indexes import VectorstoreIndexCreator
-from langchain.indexes.vectorstore import VectorStoreIndexWrapper
-from langchain.llms import OpenAI
 import pdb
 
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -167,9 +158,12 @@ def translate_srt(sentences, target_language, folder):
 
   return translated_srt
 
-def generate_subtitles(sentences, folder, video):
-    target_languages = ['en', 'es', 'pt']
+def generate_subtitles(sentences, folder, video, include_srt=True, file_name=''):
+    target_languages = ['en']
 
+    if (include_srt):
+        target_languages = ['en', 'es', 'pt']
+        
     for language in target_languages:
         translate_srt(sentences, language, folder)
         
@@ -178,7 +172,10 @@ def generate_subtitles(sentences, folder, video):
     sub = SubtitlesClip(f"{folder}/en.srt", generator)
     final = CompositeVideoClip([video, sub.set_position((.1, .9), relative=True)])
     final = final.set_audio(video.audio)
-    final.write_videofile(f"{folder}/subbed.mp4", fps=video.fps, audio_codec='aac')
+    if file_name != '':
+        final.write_videofile(f"{folder}/{file_name}-subbed.mp4", fps=video.fps, audio_codec='aac')
+    else:
+        final.write_videofile(f"{folder}/subbed.mp4", fps=video.fps, audio_codec='aac')
 
 def get_insights(sentences, folder):
     openai.api_key = load_api_key()

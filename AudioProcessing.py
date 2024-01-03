@@ -6,7 +6,6 @@ from scipy.io import wavfile
 import numpy as np
 import noisereduce as nr
 import whisper
-from whisper.utils import get_writer
 import os
 
 def load_api_key():
@@ -114,9 +113,13 @@ def get_viral_transcript(audio_path):
     transcript = openai.Audio.transcribe("whisper-1", f, prompt="Please transcribe only the first sentence")
     print(transcript)
 
-def get_whisper_transcription(audio_path, folder_name):
-    print("obtaining audio transcript")
-    transcript_file = f"{folder_name}/whisper-{folder_name}.json"
+def get_whisper_transcription(audio_path, folder_name, file_name=''):
+    print("obtaining audio transcript")        
+    if file_name != '':
+        transcript_file = f"{folder_name}/whisper-{file_name}.json"
+    else:
+        transcript_file = f"{folder_name}/whisper-{folder_name}.json"
+
     if os.path.exists(transcript_file):
         with open(transcript_file, "r") as f:
             return json.load(f)
