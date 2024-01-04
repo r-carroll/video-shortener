@@ -173,9 +173,9 @@ def generate_subtitles(sentences, folder, video, include_srt=True, file_name='')
     final = CompositeVideoClip([video, sub.set_position((.1, .9), relative=True)])
     final = final.set_audio(video.audio)
     if file_name != '':
-        final.write_videofile(f"{folder}/{file_name}-subbed.mp4", fps=video.fps, audio_codec='aac')
+        final.write_videofile(f"{folder}/{file_name}-subbed.mp4", fps=30, audio_codec='aac')
     else:
-        final.write_videofile(f"{folder}/subbed.mp4", fps=video.fps, audio_codec='aac')
+        final.write_videofile(f"{folder}/subbed.mp4", fps=30, audio_codec='aac')
 
 def get_insights(sentences, folder):
     openai.api_key = load_api_key()
