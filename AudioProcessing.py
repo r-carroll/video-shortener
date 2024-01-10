@@ -117,8 +117,10 @@ def get_whisper_transcription(audio_path, folder_name, file_name=''):
     print("obtaining audio transcript")        
     if file_name != '':
         transcript_file = f"{folder_name}/whisper-{file_name}.json"
+        transcript_only_file = f"{folder_name}/{file_name}-transcript.json"
     else:
         transcript_file = f"{folder_name}/whisper-{folder_name}.json"
+        transcript_only_file = f"{folder_name}/{folder_name}-transcript.json"
 
     if os.path.exists(transcript_file):
         with open(transcript_file, "r") as f:
@@ -128,12 +130,16 @@ def get_whisper_transcription(audio_path, folder_name, file_name=''):
         condensed_data = []
         model = whisper.load_model("base")
         result = model.transcribe(audio_path)
+        transcript_lines = [segment["text"] for segment in result["segments"]]
         for segment in result["segments"]:
             condensed_segment = {key: segment[key] for key in desired_keys}
             condensed_data.append(condensed_segment)
 
         with open(transcript_file, 'w') as f:
             json.dump(condensed_data, f)
+
+        with open(transcript_only_file, 'w') as f:
+            f.write("\n".join(transcript_lines))
         return condensed_data
 
     # print(result)
