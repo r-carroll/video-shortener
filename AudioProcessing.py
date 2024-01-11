@@ -117,10 +117,10 @@ def get_whisper_transcription(audio_path, folder_name, file_name=''):
     print("obtaining audio transcript")        
     if file_name != '':
         transcript_file = f"{folder_name}/whisper-{file_name}.json"
-        transcript_only_file = f"{folder_name}/{file_name}-transcript.json"
+        transcript_only_file = f"{folder_name}/{file_name}-transcript.txt"
     else:
         transcript_file = f"{folder_name}/whisper-{folder_name}.json"
-        transcript_only_file = f"{folder_name}/{folder_name}-transcript.json"
+        transcript_only_file = f"{folder_name}/{folder_name}-transcript.txt"
 
     if os.path.exists(transcript_file):
         with open(transcript_file, "r") as f:
