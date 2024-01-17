@@ -178,6 +178,7 @@ def generate_subtitles(sentences, folder, video, include_srt=True, file_name='')
         final.write_videofile(f"{folder}/subbed.mp4", fps=30, audio_codec='aac')
 
 def get_insights(sentences, folder):
+    print('Loading insights')
     openai.api_key = load_api_key()
     insights_file = f"{folder}/insights.txt"
     chapters_file = f"{folder}/chapters.txt"
@@ -201,6 +202,7 @@ def get_insights(sentences, folder):
 
         with open(insights_file, 'w') as f:
             f.write(data)
+        print('Finished grabbing insights')
     
     if os.path.exists(chapters_file):
         with open(chapters_file) as f:

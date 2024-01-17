@@ -21,6 +21,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from keras_preprocessing.sequence import pad_sequences
 from nltk.sentiment import SentimentIntensityAnalyzer
+import argparse
 
 import spacy
 from datetime import timedelta
@@ -39,8 +40,17 @@ nlp = spacy.load("en_core_web_sm")
 stop_words = set(stopwords.words('english'))
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "creds/celtic-guru-247118-9e8cccc27c4a.json"
 audio_path = 'temp_audio.wav'
-video_file_name = sys.argv[2]
-command = sys.argv[1]
+parser = argparse.ArgumentParser()
+parser.add_argument("command")
+parser.add_argument("video_file_name")
+parser.add_argument("--skip-insights", action="store_true")
+parser.add_argument("--skip-video", action="store_true")
+parser.add_argument("--skip-srt", action="store_true")
+args = parser.parse_args()
+command = args.command
+video_file_name = args.video_file_name
+# video_file_name = sys.argv[2]
+# command = sys.argv[1]
 file_without_path = os.path.basename(video_file_name)
 folder_name = os.path.splitext(file_without_path)[0]
 if not os.path.exists(folder_name):
@@ -48,6 +58,7 @@ if not os.path.exists(folder_name):
 original_video = VideoFileClip(video_file_name)
 segment_duration = 60
 TARGET_DURATION = 20 * 60;
+
 
 def calculate_relevance(text, sentences):
     transcript_docs = [nlp(segment['text']) for segment in sentences]
@@ -282,7 +293,8 @@ important_segments = []
 
 # Operations needed for all flows
 sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)
-TextProcessing.get_insights(sentences, folder_name)
+if not args.skip_insights:
+    TextProcessing.get_insights(sentences, folder_name)
 
 
     
@@ -312,8 +324,10 @@ if command == "meme":
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/meme_video.mp4", fps=24, codec='libx264', audio_codec='aac')
 if command == "caption" or command == "all":
-    print("starting caption workflow")
-    TextProcessing.generate_subtitles(sentences, folder_name, original_video)
+    if not args.skip_video:
+        print("starting caption workflow")
+        include_srt = not args.skip_srt
+        TextProcessing.generate_subtitles(sentences, folder_name, original_video, include_srt)
 else:
     print(f"Available commands: \n shorts: generate 5 short-format videos" +
           f"\n summarize: generate a 20 minute summary video" +

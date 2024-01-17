@@ -19,6 +19,7 @@ for filename in os.listdir(folder_path):
             video = VideoFileClip(video_path)
             audio = video.audio.write_audiofile(audio_path)
             sentences = AudioProcessing.get_whisper_transcription(audio_path, captioned_path, filename)
-            TextProcessing.generate_subtitles(sentences, captioned_path, video, False, filename)
+            if len(sys.argv) == 2:
+                TextProcessing.generate_subtitles(sentences, captioned_path, video, False, filename)
            except Exception as e:
                print(f"Error processing {filename}: {e}")  
