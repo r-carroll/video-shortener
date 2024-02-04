@@ -292,16 +292,18 @@ with io.open(audio_path, 'rb') as audio_file:
 important_segments = []
 
 # Operations needed for all flows
-sentences = AudioProcessing.get_whisper_transcription(audio_path, folder_name)
+transcripts = AudioProcessing.get_whisper_transcription(audio_path, folder_name)
+sentences_withtime = transcripts[0]
+text_only = transcripts[1]
 if not args.skip_insights:
-    TextProcessing.get_insights(sentences, folder_name)
+    TextProcessing.get_insights(sentences_withtime, text_only, folder_name)
 
 
     
 
 if command == "summarize":
     print("building summary manifest")
-    important_segments = order_by_relevance(sentences)
+    important_segments = order_by_relevance(sentences_withtime)
     trimmed_segments = trim_segments(important_segments)
     summary_video = create_summary_video(trimmed_segments, TARGET_DURATION, original_video)
     summary_video.write_videofile(f"{folder_name}/summary_video.mp4", fps=24, codec='libx264', audio_codec='aac')
@@ -316,7 +318,7 @@ if command == "shorts" or command == "all":
     print("starting shorts workflow")
     # with open(f'{folder_name}/shorts.json') as f:
     #     viral_segments = json.load(f)
-    important_segments = order_by_relevance(sentences)
+    important_segments = order_by_relevance(sentences_withtime)
     write_segment_files(important_segments, original_video)
 if command == "meme":
     important_segments = meme_segments(audio_path)
@@ -327,7 +329,7 @@ if command == "caption" or command == "all":
     if not args.skip_video:
         print("starting caption workflow")
         include_srt = not args.skip_srt
-        TextProcessing.generate_subtitles(sentences, folder_name, original_video, include_srt)
+        TextProcessing.generate_subtitles(sentences_withtime, folder_name, original_video, include_srt)
 else:
     print(f"Available commands: \n shorts: generate 5 short-format videos" +
           f"\n summarize: generate a 20 minute summary video" +

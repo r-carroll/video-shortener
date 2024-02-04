@@ -4,13 +4,13 @@ import os
 import ssl
 import datetime
 import srt
-from googletrans import Translator
-from google.cloud import speech, storage
+# from googletrans import Translator
 import openai
 from moviepy.editor import TextClip, CompositeVideoClip
 import moviepy.video.fx.all as vfx
 from moviepy.video.tools.subtitles import SubtitlesClip
 import pdb
+import ollama
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
@@ -71,69 +71,12 @@ def whisper_concatenate_sentences(sentences):
 
     return complete_sentences
 
-def upload_to_bucket(bucket_name, file_name):
-    print("uploading audio to bucket")
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(bucket_name)
-    blob = bucket.blob(file_name)
-
-    if blob.exists():
-        blob.delete()
-
-    blob.chunk_size = 5 * 1024 * 1024 # Set 5 MB blob size so it doesn't timeout
-
-    blob.upload_from_filename(file_name)
-
-    print(f"File {file_name} uploaded to {file_name}.")
-
-    return blob.public_url
-
-def get_transcription(bucket_name, audio_path, folder_name):
-    transcript_file = f"{folder_name}/{folder_name}.json"
-    client = speech.SpeechClient()
-    speech_audio = speech.RecognitionAudio(uri='gs://sermon-speech-audio/temp_audio.wav')
-    config = speech.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-        sample_rate_hertz=44100,
-        language_code='en-US',
-        audio_channel_count = 2,
-        enable_automatic_punctuation=True,
-        enable_word_time_offsets=True,
-        model='video',
-        use_enhanced=True)
-    
-    if os.path.exists(transcript_file):
-        with open(transcript_file, "r") as f:
-            sentences = json.load(f)
-    else:
-        upload_to_bucket(bucket_name, audio_path)
-        operation = client.long_running_recognize(config=config, audio=speech_audio)
-        print("Waiting for operation to complete...")
-        response = operation.result(timeout=5400)
-        sentences = []
-        for result in response.results:
-            alternatives = result.alternatives
-            
-            for alternative in alternatives:
-                sentence = alternative.transcript.strip()
-                if sentence:
-                    sentences.append({
-                        'text': sentence,
-                        'start_time': alternative.words[0].start_time.total_seconds(),
-                        'end_time': alternative.words[-1].end_time.total_seconds()
-                    })
-        sentences = concatenate_sentences(sentences)
-        with open(transcript_file, 'w') as f:
-            json.dump(sentences, f)
-
-    return sentences
-
 def translate_srt(sentences, target_language, folder):
-  translator = Translator()
+#   translator = Translator()
   translated_sentences = []
   translated_texts = [sentence['text'] for sentence in sentences]
-  if target_language != 'en':
-    translated_texts = translator.translate(translated_texts , dest=target_language)
+#   if target_language != 'en':
+#     translated_texts = translator.translate(translated_texts , dest=target_language)
 
   for index, sentence in enumerate(sentences):
     target_text = ""
@@ -177,9 +120,8 @@ def generate_subtitles(sentences, folder, video, include_srt=True, file_name='')
     else:
         final.write_videofile(f"{folder}/subbed.mp4", fps=30, audio_codec='aac')
 
-def get_insights(sentences, folder):
+def get_insights(sentences_withtime, text_only, folder):
     print('Loading insights')
-    openai.api_key = load_api_key()
     insights_file = f"{folder}/insights.txt"
     chapters_file = f"{folder}/chapters.txt"
 
@@ -187,18 +129,17 @@ def get_insights(sentences, folder):
         with open(insights_file) as f:
                 data = f.read()
     else:
-        insights_prompt_string = (f"Please provide a brief summary, key scripture passages, and top quotes given the following manuscript.\n\n"
-                        f"{sentences}")
+        insights_prompt_string = (f"Please provide a brief summary for the following sermon manuscript.\n\n"
+                        f"{text_only}")
 
-        response = openai.ChatCompletion.create(
-        model="gpt-4-1106-preview",
-        messages=[
-                {"role": "system", "content": "You are textual analysis and insights tool"},
-                {"role": "user", "content": insights_prompt_string}
-            ]
-        )
+        response = ollama.chat(model='yarn-mistral:7b-128k' , messages=[
+            {
+                'role': 'user',
+                'content': insights_prompt_string
+            }
+        ])
 
-        data = response['choices'][0]['message']['content']
+        data = response['message']['content']
 
         with open(insights_file, 'w') as f:
             f.write(data)
@@ -208,18 +149,17 @@ def get_insights(sentences, folder):
         with open(chapters_file) as f:
                 data = f.read()
     else:
-        chapter_prompt_string = (f"Please provide a chapter breakdown given the following manuscript and included timestamps. Please include the timestamps with the chapters. The timestamps provided are in seconds, please convert them to minutes and seconds in the output by dividing them by 60 and rounding to 2 decimal places. Divide up the entire manuscript into no more than 5 chapters.\n\n"
-                        f"{sentences}")
+        chapter_prompt_string = (f"please generate a list of up to 5 chapters with timestamps for the following sermon transcript\n\n"
+                        f"{sentences_withtime}")
 
-        response = openai.ChatCompletion.create(
-        model="gpt-4-1106-preview",
-        messages=[
-                {"role": "system", "content": "You are textual analysis and insights tool"},
-                {"role": "user", "content": chapter_prompt_string}
-            ]
-        )
+        response = ollama.chat(model='yarn-mistral:7b-128k', messages=[
+            {
+                'role': 'user',
+                'content': chapter_prompt_string
+            }
+        ])
 
-        data = response['choices'][0]['message']['content']
+        data = response['message']['content']
 
         with open(chapters_file, 'w') as f:
             f.write(data)
